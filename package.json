@@ -1,0 +1,28 @@
+{
+  "name": "oredlab-promo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "audio": "bun scripts/audio.ts",
+    "stills": "bun scripts/render.ts stills",
+    "sheet": "bun scripts/render.ts sheet",
+    "preview": "bun scripts/render.ts video --samples 1 --preset veryfast --out out/preview.mp4",
+    "render": "bun scripts/render.ts video --samples 8 --shutter 0.5 --out out/oredlab-promo.mp4",
+    "render:4k": "bun scripts/render.ts video --scale 2 --samples 8 --shutter 0.5 --out out/oredlab-promo-4k.mp4"
+  },
+  "dependencies": {
+    "three": "^0.180.0",
+    "@fontsource-variable/instrument-sans": "^5.2.0",
+    "@fontsource/instrument-serif": "^5.2.0",
+    "@fontsource/ibm-plex-mono": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/three": "^0.180.0",
+    "playwright-core": "1.56.1",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  }
+}
