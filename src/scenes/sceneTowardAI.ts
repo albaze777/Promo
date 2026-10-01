@@ -9,14 +9,14 @@ import { PanelScene, type Frame } from '../engine/scene';
 import { FSPass } from '../engine/gl';
 import { LineBatch, type RGBA } from '../engine/lines';
 import { LineMotif, RED, BONE, ASH, rgba, arc } from '../motifs/line';
-import { bonesGLSL, RELIEF_SHADE_GLSL, BoneArray, boxOf, type Capsule } from '../shaders/relief';
+import { BODY_COMMON_GLSL, bodyGLSL, PartArray, boxOf, MAT, type Part } from '../shaders/relief';
 import { MARK } from '../motifs/world';
 import { CUE } from '../timeline/cues';
 import { clamp, ease, keys, lerp, smoothstep, TAU, catmull, polyLengths, type V2 } from '../utils/math';
 
 const T0 = CUE.aiIn, GEARS = CUE.gears, CIRC = CUE.circuits, ROBOTS = CUE.robots, HAND = CUE.robotHand, OUT = CUE.aiOut;
 const BASE = 860;                              // the baseline (world y)
-const NBONES = 42;
+const NBONES = 128;
 const R3: V2 = [2980, BASE];                   // the arm's base
 const SHOULDER: V2 = [R3[0], BASE - 222];
 const CIRCLE = { c: [3232, 528] as V2, r: 92 };
@@ -69,7 +69,7 @@ const GEAR = [
 ];
 
 export default class SceneTowardAI extends PanelScene {
-  bones = new BoneArray(NBONES);
+  bones = new PartArray(NBONES);
   L = new LineBatch(16000);
   dots = new LineBatch(800);
   motif = new LineMotif();
@@ -77,8 +77,8 @@ export default class SceneTowardAI extends PanelScene {
   traces: { pts: V2[]; t0: number; t1: number }[] = [];
   pass = new FSPass(/* glsl */ `
     uniform vec2 cam; uniform float camS, t; uniform vec4 rbox;
-    ${bonesGLSL('rb', NBONES)}
-    ${RELIEF_SHADE_GLSL}
+    ${BODY_COMMON_GLSL}
+    ${bodyGLSL('rb', NBONES)}
     void main() {
       vec2 px = FRAG_PX;
       vec2 w = cam + (px - vec2(960.0, 540.0)) / camS;
@@ -91,8 +91,8 @@ export default class SceneTowardAI extends PanelScene {
       c += C_BONE * 0.22 * (base + tick * 0.6);
       // the robots: the same relief as every body in the film, in blueprint tones
       vec3 Ld = normalize(vec3(-0.5, -0.65, 0.6));
-      float d = rbSD(px, 0, ${NBONES}, 4.0, rbox);
-      c = reliefShade(c, d, C_INK2 * 1.7 + C_GRAPHITE * 0.05, C_BONE * 0.85, 6.0, Ld, 1.0);
+      Body B = rbBody(px, 0, ${NBONES}, rbox);
+      c = bodyShade(c, B, Ld, vec3(1.0, 0.97, 0.92) * 1.1, vec3(0.15, 0.148, 0.145), vec3(0.2), 0.0, C_BONE * 0.85, 6.0, 1.0);
       fragColor = vec4(c, 1.0);
     }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, rbox: { value: new THREE.Vector4() }, ...this.bones.uniforms('rb') });
 
@@ -155,63 +155,115 @@ export default class SceneTowardAI extends PanelScene {
     const elbow: V2 = [SHOULDER[0] + Math.cos(a1) * L1, SHOULDER[1] + Math.sin(a1) * L1];
     return { tip, wrist, elbow, handDir, k };
   }
-  robots(t: number): { caps: Capsule[]; joints: V2[]; guides: [V2, V2, number][] } {
-    const caps: Capsule[] = [], joints: V2[] = [], guides: [V2, V2, number][] = [];
-    const part = (a: V2, b: V2, ra: number, rb: number, t0: number, joint = true) => {
+  robots(t: number): { caps: Part[]; joints: V2[]; guides: [V2, V2, number][] } {
+    const caps: Part[] = [], joints: V2[] = [], guides: [V2, V2, number][] = [];
+    const M = MAT.METAL, J = MAT.JOINT, DK = MAT.DARK;
+    /** One part, growing in on its construction guide from time t0. */
+    const part = (a: V2, b: V2, ra: number, rb: number, t0: number, mat: number = M, k = 3, guide = true) => {
       const g = ease.outBack(clamp((t - t0) / 0.18));
       const gk = clamp((t - (t0 - 0.12)) / 0.12) * (1 - smoothstep(t0 + 0.35, t0 + 0.7, t));
-      if (gk > 0) guides.push([a, b, gk]);
+      if (gk > 0 && guide) guides.push([a, b, gk]);
       if (g <= 0) return;
-      caps.push({ a, b, ra: ra * g, rb: rb * g });
-      if (joint && g > 0.6) joints.push(a);
+      caps.push({ a, b, ra: ra * g, rb: rb * g, mat, k });
     };
-    // R1: a slender biped (idle sway, a turn of the head)
+    // a joint: a metal hub in the silhouette, with a red disc on top of whatever limb it sits in
+    const joint = (p: V2, r: number, t0: number) => { part(p, [p[0] + 0.01, p[1]], r, r, t0, M, 0, false); part(p, [p[0] + 0.01, p[1]], r * 0.8, r * 0.8, t0, J, -1, false); };
+    const off = (a: V2, b: V2, o: number): [V2, V2] => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [[a[0] - dy / L * o, a[1] + dx / L * o], [b[0] - dy / L * o, b[1] + dx / L * o]]; };
+    const lerp2 = (a: V2, b: V2, k: number): V2 => [lerp(a[0], b[0], k), lerp(a[1], b[1], k)];
+
+    // R1: a slender biped — plated limbs with pistons, a segmented spine, a chest plate with a red core, a visor
     const b0 = ROBOTS;
     const x1 = 2400, sw = Math.sin(t * 1.4) * 4;
-    const pel: V2 = [x1 + sw * 0.5, BASE - 210], ch: V2 = [x1 + sw, BASE - 336], hd: V2 = [x1 + sw + 4 * Math.sin(t * 0.9), BASE - 404];
-    part([x1 - 12, BASE - 206], [x1 - 6, BASE - 108], 17, 14, b0 + 0.05);
-    part([x1 - 6, BASE - 108], [x1 - 12, BASE - 14], 13, 11, b0 + 0.1);
-    part([x1 - 12, BASE - 10], [x1 + 22, BASE - 8], 9, 8, b0 + 0.15, false);
-    part(pel, ch, 30, 40, b0 + 0.2);
-    part([ch[0], ch[1] - 8], [hd[0], hd[1] + 30], 9, 8, b0 + 0.28);
-    part([hd[0] - 16, hd[1]], [hd[0] + 22, hd[1] - 2], 27, 24, b0 + 0.33, false);
-    part([x1 + 10, BASE - 206], [x1 + 18, BASE - 108], 18, 14, b0 + 0.4);
-    part([x1 + 18, BASE - 108], [x1 + 10, BASE - 14], 14, 11, b0 + 0.45);
-    part([x1 + 10, BASE - 10], [x1 + 44, BASE - 8], 9, 8, b0 + 0.48, false);
+    const pel: V2 = [x1 + sw * 0.5, BASE - 212], ch: V2 = [x1 + sw, BASE - 338], hd: V2 = [x1 + sw + 4 * Math.sin(t * 0.9), BASE - 406];
+    for (const [ox, k] of [[-12, 0], [12, 0.35]] as const) {
+      const hip: V2 = [x1 + ox, BASE - 208], knee: V2 = [x1 + ox + 6, BASE - 112], ank: V2 = [x1 + ox, BASE - 18];
+      part([ank[0] - 14, BASE - 8], [ank[0] + 34, BASE - 6], 9, 7, b0 + 0.05 + k, M, 2);
+      part([ank[0] + 30, BASE - 7], [ank[0] + 40, BASE - 5], 6, 5, b0 + 0.06 + k, DK, 0, false);
+      joint(ank, 8, b0 + 0.08 + k);
+      part(knee, ank, 15, 11, b0 + 0.1 + k);
+      const [pa, pb] = off(knee, ank, -15); part(lerp2(pa, pb, 0.1), lerp2(pa, pb, 0.85), 3.5, 3, b0 + 0.12 + k, DK, 0, false);
+      part(lerp2(pa, pb, 0.08), lerp2(pa, pb, 0.45), 6, 6, b0 + 0.12 + k, M, 0, false);
+      joint(knee, 11, b0 + 0.13 + k);
+      part(hip, knee, 19, 15, b0 + 0.15 + k);
+      joint(hip, 12, b0 + 0.17 + k);
+    }
+    part([pel[0] - 26, pel[1]], [pel[0] + 26, pel[1]], 19, 19, b0 + 0.2, M, 6);
+    part([pel[0], pel[1] - 10], [ch[0], ch[1] + 20], 9, 9, b0 + 0.22, DK, 0, false);
+    for (let k = 0; k < 3; k++) { const y = pel[1] - 26 - k * 22; part([pel[0] - 2, y], [pel[0] + 2, y], 15 - k, 15 - k, b0 + 0.24 + k * 0.02, M, 0, false); }
+    part([ch[0], ch[1] + 40], [ch[0] + 2, ch[1] - 10], 36, 44, b0 + 0.3, M, 8);
+    part([ch[0] + 16, ch[1] + 4], [ch[0] + 17, ch[1] + 4], 22, 22, b0 + 0.32, M, 4, false);
+    part([ch[0] + 22, ch[1] + 6], [ch[0] + 22.01, ch[1] + 6], 6, 6, b0 + 0.34, J, -1, false);
+    for (const o of [-7, 7]) part([ch[0] + o, ch[1] - 40], [hd[0] + o * 0.6, hd[1] + 28], 3.5, 3, b0 + 0.36, DK, 0, false);
+    joint([hd[0] - 2, hd[1] + 30], 7, b0 + 0.37);
+    part([hd[0] - 14, hd[1]], [hd[0] + 18, hd[1] - 2], 26, 23, b0 + 0.4, M, 6);
+    part([hd[0] + 4, hd[1] - 2], [hd[0] + 30, hd[1] - 3], 8, 7, b0 + 0.42, MAT.GLASS, -1, false);
+    joint([hd[0] - 10, hd[1] + 2], 6, b0 + 0.43);
     const sh: V2 = [ch[0] + 8, ch[1] + 6], el: V2 = [sh[0] + 26 + 6 * Math.sin(t * 1.4), sh[1] + 90], wr: V2 = [el[0] + 30, el[1] + 74];
-    part(sh, el, 13, 11, b0 + 0.52);
+    joint(sh, 13, b0 + 0.5);
+    part(sh, el, 14, 11, b0 + 0.52);
+    joint(el, 9, b0 + 0.54);
     part(el, wr, 11, 9, b0 + 0.56);
-    part(wr, [wr[0] + 10, wr[1] + 22], 9, 6, b0 + 0.6);
-    // R2: a wheeled one (a sphere on a wheel), rocking
+    joint(wr, 6, b0 + 0.58);
+    const pd: V2 = [wr[0] + 6, wr[1] + 16];
+    part(wr, pd, 8, 7, b0 + 0.6, M, 2);
+    for (let f = 0; f < 3; f++) { const f1: V2 = [pd[0] + 2 + f * 3, pd[1] + 12], f2: V2 = [f1[0] - 1 + f, f1[1] + 10]; part(pd, f1, 3.5, 3, b0 + 0.62, M, 0, false); part(f1, f2, 3, 2.4, b0 + 0.63, M, 0, false); }
+
+    // R2: a wheeled one — a sphere on a tyred wheel, a sensor dome with one eye, a gripper arm; rocking
     const b1 = ROBOTS + 0.75;
     const x2 = 2690 + 24 * Math.sin((t - b1) * 1.1);
-    part([x2, BASE - 46], [x2 + 0.1, BASE - 46], 45, 45, b1 + 0.05, false);
-    part([x2, BASE - 156], [x2 + 0.1, BASE - 156], 66, 66, b1 + 0.15, false);
-    part([x2, BASE - 222], [x2, BASE - 246], 10, 9, b1 + 0.25);
-    part([x2 - 26, BASE - 262], [x2 + 26, BASE - 262], 21, 21, b1 + 0.3, false);
+    const wc: V2 = [x2, BASE - 46], rot = -(x2 - 2690) / 45;
+    part(wc, [wc[0] + 0.01, wc[1]], 45, 45, b1 + 0.05, MAT.RUBBER, 0, false);
+    part(wc, [wc[0] + 0.01, wc[1]], 22, 22, b1 + 0.08, M, -1, false);
+    for (let k = 0; k < 4; k++) { const a = rot + (k * Math.PI) / 2, p: V2 = [wc[0] + Math.cos(a) * 14, wc[1] + Math.sin(a) * 14]; part(p, [p[0] + 0.01, p[1]], 3, 3, b1 + 0.1, DK, -1, false); }
+    joint(wc, 6, b1 + 0.1);
+    for (const o of [-30, 30]) part([x2 + o, BASE - 110], [x2 + o * 0.4, BASE - 50], 7, 6, b1 + 0.12);
+    part([x2, BASE - 156], [x2 + 0.01, BASE - 156], 66, 66, b1 + 0.15, M, 6);
+    part([x2 - 64, BASE - 152], [x2 + 64, BASE - 152], 4, 4, b1 + 0.18, DK, -1, false);
+    part([x2 + 30, BASE - 186], [x2 + 30.01, BASE - 186], 7, 7, b1 + 0.2, J, -1, false);
+    joint([x2, BASE - 230], 9, b1 + 0.25);
+    part([x2 - 26, BASE - 262], [x2 + 26, BASE - 262], 21, 21, b1 + 0.3, M, 4);
+    part([x2 + 14, BASE - 264], [x2 + 14.01, BASE - 264], 9, 9, b1 + 0.33, MAT.GLASS, -1, false);
     const ra: V2 = [x2 + 52, BASE - 170], re: V2 = [ra[0] + 46, ra[1] + 26 + 10 * Math.sin(t * 2)];
+    joint(ra, 10, b1 + 0.36);
     part(ra, re, 11, 9, b1 + 0.38);
-    part(re, [re[0] + 30, re[1] - 24], 9, 6, b1 + 0.42);
-    joints.push([x2, BASE - 46]);
-    // R3: an arm, whose hand will draw the circle
+    joint(re, 8, b1 + 0.4);
+    const gp: V2 = [re[0] + 30, re[1] - 24], op = 0.25 + 0.2 * Math.sin(t * 2.5);
+    part(re, gp, 8, 6, b1 + 0.42);
+    for (const sgn of [-1, 1]) { const a = Math.atan2(gp[1] - re[1], gp[0] - re[0]) + sgn * op; part(gp, [gp[0] + Math.cos(a) * 18, gp[1] + Math.sin(a) * 18], 4, 2, b1 + 0.44, M, 0, false); }
+
+    // R3: an industrial arm — bolted base, turret, links with a hydraulic piston and cables, a hand with jointed fingers
     const b2 = ROBOTS + 1.45;
     const ik = this.armIK(t);
-    part([R3[0] - 66, BASE - 18], [R3[0] + 66, BASE - 18], 20, 20, b2 + 0.0, false);
-    part([R3[0], BASE - 30], SHOULDER, 30, 26, b2 + 0.08);
-    part(SHOULDER, ik.elbow, 27, 22, b2 + 0.16);
-    part(ik.elbow, ik.wrist, 21, 16, b2 + 0.24);
+    part([R3[0] - 70, BASE - 14], [R3[0] + 70, BASE - 14], 18, 18, b2 + 0.0, M, 4);
+    for (let k = 0; k < 4; k++) part([R3[0] - 54 + k * 36, BASE - 24], [R3[0] - 54 + k * 36 + 0.01, BASE - 24], 4, 4, b2 + 0.02, DK, -1, false);
+    part([R3[0], BASE - 30], [R3[0], BASE - 130], 36, 32, b2 + 0.06, M, 6);
+    part([R3[0], BASE - 130], SHOULDER, 30, 26, b2 + 0.08);
+    joint(SHOULDER, 22, b2 + 0.12);
+    part(SHOULDER, ik.elbow, 27, 21, b2 + 0.16);
+    const [pa1, pb1] = off(SHOULDER, ik.elbow, 25);
+    part(lerp2(pa1, pb1, 0.12), lerp2(pa1, pb1, 0.55), 9, 9, b2 + 0.18, M, 0, false);
+    part(lerp2(pa1, pb1, 0.5), lerp2(pa1, pb1, 0.88), 4, 4, b2 + 0.19, DK, 0, false);
+    const [ca, cb] = off(SHOULDER, ik.elbow, -22);
+    part(lerp2(ca, cb, 0.05), lerp2(ca, cb, 0.95), 3, 3, b2 + 0.2, DK, 0, false);
+    joint(ik.elbow, 17, b2 + 0.22);
+    part(ik.elbow, ik.wrist, 20, 15, b2 + 0.24);
+    const [cc, cd] = off(ik.elbow, ik.wrist, -17);
+    part(lerp2(cc, cd, 0.08), lerp2(cc, cd, 0.92), 2.6, 2.6, b2 + 0.26, DK, 0, false);
+    joint(ik.wrist, 12, b2 + 0.28);
     const hc = Math.cos(ik.handDir), hs = Math.sin(ik.handDir);
     const palm: V2 = [ik.wrist[0] + hc * 44, ik.wrist[1] + hs * 44];
-    part(ik.wrist, palm, 17, 15, b2 + 0.3);
-    // fingers: the index extended (it holds the point), the others curled under, a thumb
-    part(palm, ik.tip, 8, 6, b2 + 0.36);
-    for (let f = 0; f < 2; f++) {
-      const o: V2 = [palm[0] - hs * (8 + f * 9) - hc * 4, palm[1] + hc * (8 + f * 9) - hs * 4];
-      const m: V2 = [o[0] + hc * 22, o[1] + hs * 22], e: V2 = [m[0] - hs * 14 - hc * 6, m[1] + hc * 14 - hs * 6];
-      part(o, m, 7, 6, b2 + 0.4 + f * 0.03); part(m, e, 6, 5, b2 + 0.42 + f * 0.03, false);
+    part(ik.wrist, palm, 17, 15, b2 + 0.3, M, 3);
+    // the index finger, extended: three segments with knuckles; it holds the point
+    const k1: V2 = [palm[0] + hc * 2, palm[1] + hs * 2], k2: V2 = lerp2(k1, ik.tip, 0.4), k3: V2 = lerp2(k1, ik.tip, 0.72);
+    part(k1, k2, 8, 7, b2 + 0.34, M, 2); part(k2, k3, 7, 6, b2 + 0.35, M, 2); part(k3, ik.tip, 6, 4.5, b2 + 0.36, M, 2);
+    for (const kk of [k2, k3]) part(kk, [kk[0] + 0.01, kk[1]], 3.5, 3.5, b2 + 0.37, J, -1, false);
+    for (let f = 0; f < 3; f++) {
+      const o: V2 = [palm[0] - hs * (9 + f * 8) - hc * 4, palm[1] + hc * (9 + f * 8) - hs * 4];
+      const m: V2 = [o[0] + hc * 20, o[1] + hs * 20], e: V2 = [m[0] - hs * 13 - hc * 6, m[1] + hc * 13 - hs * 6];
+      part(o, m, 7, 6, b2 + 0.4 + f * 0.03, M, 2); part(m, e, 6, 4.5, b2 + 0.42 + f * 0.03, M, 2, false);
     }
-    const th: V2 = [ik.wrist[0] + hc * 20 + hs * 14, ik.wrist[1] + hs * 20 - hc * 14];
-    part(th, [th[0] + hc * 30 + hs * 10, th[1] + hs * 30 - hc * 10], 7, 5, b2 + 0.46);
+    const th: V2 = [ik.wrist[0] + hc * 20 + hs * 14, ik.wrist[1] + hs * 20 - hc * 14], th2: V2 = [th[0] + hc * 22 + hs * 8, th[1] + hs * 22 - hc * 8];
+    part(th, th2, 7, 6, b2 + 0.46, M, 2); part(th2, [th2[0] + hc * 16, th2[1] + hs * 16], 6, 4.5, b2 + 0.47, M, 2, false);
     return { caps, joints, guides };
   }
 
@@ -256,7 +308,7 @@ export default class SceneTowardAI extends PanelScene {
     u.camS!.value = cam.s; u.t!.value = t;
     const rb = this.robots(t);
     const S = (p: V2) => this.scr(t, p);
-    const caps = rb.caps.map((c) => ({ a: S(c.a), b: S(c.b), ra: c.ra * cam.s, rb: c.rb * cam.s }));
+    const caps = rb.caps.map((c) => ({ ...c, a: S(c.a), b: S(c.b), ra: c.ra * cam.s, rb: c.rb * cam.s, k: (c.k ?? 3) * cam.s }));
     this.bones.set(0, NBONES, caps);
     (u.rbox!.value as THREE.Vector4).copy(boxOf(caps, 10));
     this.pass.render(r, out);

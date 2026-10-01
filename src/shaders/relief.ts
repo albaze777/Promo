@@ -233,7 +233,7 @@ export function bodyGLSL(name: string, n: number) {
         float w = exp(-clamp(dist, -60.0, 60.0) / 6.0);
         nsum += w * vec3(qn.x, -qn.y, sqrt(1.0 - l2));
       }
-      if ((isDecal && dist < 0.0) || (!decal && dist < best)) {
+      if ((isDecal && dist < 0.0) || (!isDecal && !decal && dist < best)) {
         if (!isDecal) best = dist;
         decal = decal || isDecal;
         float L = sqrt(L2); vec2 tt = L > 1e-3 ? ba / L : vec2(1.0, 0.0);
