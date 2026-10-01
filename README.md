@@ -4,7 +4,7 @@ A 26-second cinematic identity film for **OredLab** (an art community for creato
 
 > One line of existence becomes the universe, then life, then humanity, then art, then digital creation, then intelligence, then Ored, then OredLab.
 
-**Rendered film:** `renders/oredlab-promo.mp4`, 1920×1080, 60 fps, H.264 + AAC, 26 s. Regenerate it with the commands below.
+**Rendered film:** `renders/oredlab-promo.mp4`, 1920×1080, 60 fps, 8 motion-blur sub-frames, H.264 (CRF 21) + AAC, 26 s, 43 MB. `renders/oredlab-promo_share.mp4` is the same film at 8.4 Mbps (26 MB) for messaging and social uploads. The CRF 16 master (about 300 MB) is reproduced by `bun run render` into `out/`. Regenerate it with the commands below.
 
 - Concept, palette, typography, beat map and scene-by-scene treatment: [`docs/TREATMENT.md`](docs/TREATMENT.md)
 - Engine, scene API, determinism rules and the motion-blur renderer: [`docs/ENGINE.md`](docs/ENGINE.md)
