@@ -32,8 +32,8 @@ const SEQUENCE = [
   ['art', 6.5, { art0: 0, art1: 1.0, art2: 2.0, art3: 3.0, art4: 4.0, art5: 5.5 }],
   // 05 digital: pixels → vector dots → grid → gallery → community; the line finds the cancelled panel
   ['digital', 3.5, { pixels: 0, vectors: 0.5, gallery: 1.0, community: 2.0, cancel: 2.75 }],
-  // 05a the cancelled artwork: zoom in → grazing, the hunt, the meteor (the line), impact → zoom out on the boom
-  ['dino', 12.5, { dinoIn: 0, dino: 1.5, stalk: 4.0, lunge: 7.0, meteor: 7.25, impact: 9.5, boom: 9.75, dinoOut: 9.75 }],
+  // 05a the cancelled artwork: zoom in → grazing, the hunt, the meteor (the red star heats white), impact and explosion → zoom out on the boom
+  ['dino', 12.5, { dinoIn: 0, dino: 1.5, stalk: 3.75, lunge: 6.0, meteor: 6.25, impact: 8.5, boom: 10.0, dinoOut: 10.0 }],
   // 05b the wheel: a disc is shaped and becomes a wheel; people draw on a wall
   ['wheel', 10.5, { wheelIn: 0, wheel: 2.0, disc: 2.5, axle: 4.5, cart: 5.5, wheelOut: 8.75 }],
   // 05c toward AI: tools → gears → circuits → robots; a robot hand draws the circle
