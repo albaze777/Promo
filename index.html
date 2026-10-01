@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>OredLab — One Line</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #050506; color: #efe9df; font: 12px/1.4 "IBM Plex Mono", ui-monospace, monospace; overflow: hidden; }
+  #wrap { position: absolute; inset: 0 0 92px 0; display: flex; align-items: center; justify-content: center; }
+  #c { max-width: 100%; max-height: 100%; aspect-ratio: 16/9; background: #000; cursor: pointer; }
+  #ui { position: absolute; left: 0; right: 0; bottom: 0; height: 92px; padding: 8px 14px; box-sizing: border-box; background: #0b0b0d; border-top: 1px solid #1d1d21; }
+  #ui.hidden { display: none; }
+  #marks { position: relative; height: 18px; }
+  .mark { position: absolute; top: 0; height: 16px; border-left: 1px solid #ff3b2e; color: #8f8a83; font-size: 10px; overflow: hidden; white-space: nowrap; padding-left: 3px; cursor: pointer; box-sizing: border-box; }
+  .mark:hover { color: #efe9df; background: #ff3b2e22; }
+  #cues { position: relative; height: 6px; }
+  .cue { position: absolute; top: 0; width: 1px; height: 6px; background: #3b3a3f; }
+  #scrub { width: 100%; margin: 2px 0; accent-color: #ff3b2e; }
+  #info { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #8f8a83; }
+  #info b { color: #efe9df; font-weight: 500; }
+  #errs { display: none; position: fixed; top: 8px; left: 8px; right: 8px; max-height: 40vh; overflow: auto; background: #300; color: #fbb; padding: 8px; white-space: pre-wrap; z-index: 9; }
+  body.export #ui, body.export #errs { display: none !important; }
+  body.export #wrap { inset: 0; display: block; }
+  body.export #c { width: 1920px; height: 1080px; max-width: none; max-height: none; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="ui">
+  <div id="marks"></div>
+  <div id="cues"></div>
+  <input id="scrub" type="range" min="0" value="0" />
+  <div id="info"></div>
+</div>
+<pre id="errs"></pre>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
