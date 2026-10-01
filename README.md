@@ -4,7 +4,7 @@ A 96-second cinematic identity film for **OredLab** (an art community for creato
 
 > One line of existence becomes the universe, then life, then a walking ape that becomes a human, then art, then a gallery whose artworks open onto the dinosaurs' last night, the first wheel and the road to the robots, then an infinite gallery, then intelligence, then Ored, then OredLab.
 
-**Rendered film:** `renders/oredlab-promo.mp4`: 1920×1080, 60 fps, 4 motion-blur sub-frames per frame (shutter 0.5), 95.6 s, H.264 two-pass (from a CRF 16 master) + AAC. `renders/oredlab-promo_share.mp4` is a two-pass copy under 30 MiB for messaging. See [Render notes](#render-notes). Regenerate them with the commands below.
+**Rendered film:** `renders/oredlab-promo.mp4`: 1920×1080, 60 fps, 4 motion-blur sub-frames per frame (shutter 0.5), 95.6 s, H.264 two-pass at 7.8 Mbps (from a CRF 16 master) + AAC 192 kbps, 95.3 MB. `renders/oredlab-promo_share.mp4` is a 1080p60 two-pass copy at 2.3 Mbps + AAC 128 kbps (28.8 MB, under 30 MiB) for messaging. See [Render notes](#render-notes). Regenerate them with the commands below.
 
 - Concept, palette, typography, beat map and scene-by-scene treatment: [`docs/TREATMENT.md`](docs/TREATMENT.md)
 - Engine, scene API, determinism rules and the motion-blur renderer: [`docs/ENGINE.md`](docs/ENGINE.md)
