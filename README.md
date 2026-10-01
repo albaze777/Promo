@@ -4,7 +4,7 @@ A 96-second cinematic identity film for **OredLab** (an art community for creato
 
 > One line of existence becomes the universe, then life, then a walking ape that becomes a human, then art, then a gallery whose artworks open onto the dinosaurs' last night, the first wheel and the road to the robots, then an infinite gallery, then intelligence, then Ored, then OredLab.
 
-**Rendered film:** `renders/oredlab-promo.mp4` (see the render notes below for its exact settings) and `renders/oredlab-promo_share.mp4`, a two-pass copy under 30 MiB for messaging. Regenerate them with the commands below.
+**Rendered film:** `renders/oredlab-promo.mp4`: 1920×1080, 60 fps, 4 motion-blur sub-frames per frame (shutter 0.5), 95.6 s, H.264 two-pass (from a CRF 16 master) + AAC. `renders/oredlab-promo_share.mp4` is a two-pass copy under 30 MiB for messaging. See [Render notes](#render-notes). Regenerate them with the commands below.
 
 - Concept, palette, typography, beat map and scene-by-scene treatment: [`docs/TREATMENT.md`](docs/TREATMENT.md)
 - Engine, scene API, determinism rules and the motion-blur renderer: [`docs/ENGINE.md`](docs/ENGINE.md)
@@ -82,6 +82,20 @@ On a machine without a GPU (SwiftShader) a 1080p frame takes about 1–8 s with 
 ## Timing
 
 All times on the command line (`--t`, `--from`, `--to`, `?t=`) are **output seconds** (0–95.625). Scenes and cues are authored on a story clock (0–76.5), declared in `src/timeline/cues.ts` as a sequence of segments whose cue times are computed by accumulation, so inserting or lengthening a scene shifts everything after it. The film plays the story clock `TIME_SCALE` = 1.25× slower. The preview's status line shows both clocks.
+
+## Render notes
+
+The delivered film was rendered with the resumable renderer as two shard processes (one browser each, SwiftShader on a 4-core container without a GPU):
+
+```sh
+# out/run_shards.sh does this: two shards side by side, then a concat + audio mux
+bun scripts/render.ts segments --to 95.625 --shard 0/2 --jobs 1 --chunk 5 --fps 60 --samples 4 --shutter 0.5 --crf 16 --preset slow --dir out/segments_final --out out/oredlab-promo_master.mp4 &
+bun scripts/render.ts segments --to 95.625 --shard 1/2 --jobs 1 --chunk 5 --fps 60 --samples 4 --shutter 0.5 --crf 16 --preset slow --dir out/segments_final --out out/oredlab-promo_master.mp4 &
+wait
+bun scripts/render.ts segments --to 95.625 --chunk 5 --fps 60 --samples 4 --shutter 0.5 --crf 16 --preset slow --dir out/segments_final --out out/oredlab-promo_master.mp4
+```
+
+60 fps with 4 sub-frames was chosen over 8 sub-frames to keep the render to a few hours on CPU rendering. The CRF 16 master is too large for git, so `renders/` holds two-pass re-encodes of it (the repository copy under 100 MB, the share copy under 30 MiB).
 
 ## Sound
 
