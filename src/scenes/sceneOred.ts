@@ -17,9 +17,11 @@ import { Rng, clamp, ease, keys, lerp, smoothstep, TAU, type V2 } from '../utils
 
 const T_IN = CUE.ored, T_CHARS = CUE.ored + 0.38, T_TOK = CUE.tokens, T_VEC = CUE.embed, T_LAY = CUE.layers;
 const T_PAT = CUE.pattern, T_NAME = CUE.oredName, T_OUT = CUE.collapse;
-const TOKENS = [{ s: 'art', a: 0 }, { s: ' has', a: 3 }, { s: ' no', a: 7 }, { s: ' lim', a: 10 }, { s: 'its', a: 14 }];
-const TOKEN_IDS = [1428, 702, 645, 2951, 1147];
-const DIM = 8;
+const TOKENS = [{ s: 'art', a: 0 }, { s: ' has', a: 3 }, { s: ' no', a: 7 }, { s: ' limits', a: 10 }];
+const TOKEN_IDS = [1428, 702, 645, 8391];
+/** Visible extent of a token (its leading space belongs to the token but not to the box). */
+const vis = (tk: { s: string; a: number }) => { const lead = tk.s.length - tk.s.trimStart().length; return { a: tk.a + lead, n: tk.s.length - lead }; };
+const DIM = 10;
 const LAYERS = 5;
 const LAYER_N = [40, 32, 24, 16, 10];
 const LAYER_R = [430, 350, 270, 190, 110];
@@ -109,7 +111,7 @@ export default class SceneOred extends Scene {
     const fadeName = smoothstep(T_NAME, T_NAME + 0.3, t);
 
     // ---- characters → tokens ------------------------------------------------------
-    const charA = smoothstep(T_IN + 0.15, T_CHARS, t) * (1 - smoothstep(T_VEC + 0.25, T_LAY, t));
+    const charA = smoothstep(T_IN + 0.26, T_CHARS + 0.02, t) * (1 - smoothstep(T_VEC + 0.25, T_LAY, t));
     const tokK = ease.inOutCubic(clamp((t - T_TOK) / 0.3));
     if (charA > 0) {
       setText(c, { fam: 'mono', px: 44, weight: 400, align: 'center', baseline: 'middle' });
@@ -119,8 +121,9 @@ export default class SceneOred extends Scene {
         // tokenisation packs characters toward their token's centre
         const tok = TOKENS.findIndex((tk) => i >= tk.a && i < tk.a + tk.s.length);
         const tk = TOKENS[tok]!;
-        const tc = charPos(tk.a)[0] + ((tk.s.length - 1) * CHAR_CELL) / 2;
-        const xx = lerp(x, tc + (x - tc) * 0.62 + (tok - 2) * 34, tokK);
+        const v = vis(tk);
+        const tc = charPos(v.a)[0] + ((v.n - 1) * CHAR_CELL) / 2;
+        const xx = lerp(x, tc + (x - tc) * 0.62 + (tok - 1.5) * 40, tokK);
         if (ch !== ' ') {
           c.fillStyle = `rgba(239,233,223,${0.92 * charA})`;
           c.fillText(ch, xx, y + 2);
@@ -134,8 +137,9 @@ export default class SceneOred extends Scene {
         TOKENS.forEach((tk, n) => {
           const k = ease.outCubic(clamp((t - (T_TOK + n * 0.05)) / 0.28));
           if (k <= 0) return;
-          const tc = charPos(tk.a)[0] + ((tk.s.length - 1) * CHAR_CELL) / 2 + (n - 2) * 34;
-          const w = (tk.s.length * CHAR_CELL * 0.62 + 24) * k, h = 74;
+          const v = vis(tk);
+          const tc = charPos(v.a)[0] + ((v.n - 1) * CHAR_CELL) / 2 + (n - 1.5) * 40;
+          const w = ((v.n - 1) * CHAR_CELL * 0.62 + 64) * k, h = 74;
           c.strokeStyle = `rgba(239,233,223,${0.7 * charA})`; c.lineWidth = 1.2;
           c.beginPath(); c.roundRect(tc - w / 2, CHAR_Y - h / 2, w, h, 8); c.stroke();
           setText(c, { fam: 'mono', px: 15, weight: 400, align: 'center', baseline: 'middle', track: 0.08 });
@@ -151,7 +155,8 @@ export default class SceneOred extends Scene {
     const layer0 = this.nodes.filter((n) => n.L === 0).length;
     if (vecK > 0 && liftK < 1) {
       TOKENS.forEach((tk, n) => {
-        const tc = charPos(tk.a)[0] + ((tk.s.length - 1) * CHAR_CELL) / 2 + (n - 2) * 34;
+        const v = vis(tk);
+        const tc = charPos(v.a)[0] + ((v.n - 1) * CHAR_CELL) / 2 + (n - 1.5) * 40;
         for (let d = 0; d < DIM; d++) {
           const k = ease.outCubic(clamp((t - (T_VEC + d * 0.025 + n * 0.02)) / 0.2));
           if (k <= 0) continue;
@@ -281,19 +286,20 @@ export default class SceneOred extends Scene {
     m.head(head[0], head[1], 1.15, 1);
     m.render(r, out);
 
-    if (f.under && f.tin < 1) this.ctx.comp.draw(r, f.under, out, { mode: 'normal', opacity: 1 - ease.inOutCubic(f.tin), premult: true });
+    if (f.under && f.tin < 1) this.ctx.comp.draw(r, f.under, out, { mode: 'normal', opacity: 1 - smoothstep(0.62, 1.0, f.tin), premult: true });
     return { bloom: 0.55, bloomThreshold: 0.9, vignette: 0.4, grain: 0.04, warmth: -0.1 };
   }
 
   /** The head: first character → around the token boxes → down a vector → up the layers → around the ring → under the name. */
   headAt(t: number): number[] {
-    const tokX = (n: number) => charPos(TOKENS[n]!.a)[0] + ((TOKENS[n]!.s.length - 1) * CHAR_CELL) / 2 + (n - 2) * 34;
+    const tokX = (n: number) => { const v = vis(TOKENS[n]!); return charPos(v.a)[0] + ((v.n - 1) * CHAR_CELL) / 2 + (n - 1.5) * 40; };
     const ws: [number, number, number][] = [[T_IN, ...charPos(0)], [T_CHARS, ...charPos(0)]];
     ws.push([T_CHARS + 0.08, charPos(0)[0] - 30, CHAR_Y - 37]);
     let tt = T_TOK;
-    TOKENS.forEach((_, n) => { tt += 0.085; ws.push([tt, tokX(n) + (n % 2 ? 30 : -30), n % 2 ? CHAR_Y + 37 : CHAR_Y - 37]); });
-    ws.push([T_VEC + 0.05, tokX(4), CHAR_Y + 92]);
-    ws.push([T_VEC + 0.3, tokX(4), CHAR_Y + 92 + 7 * 22]);
+    TOKENS.forEach((_, n) => { tt += 0.1; ws.push([tt, tokX(n) + (n % 2 ? 30 : -30), n % 2 ? CHAR_Y + 37 : CHAR_Y - 37]); });
+    const last = TOKENS.length - 1;
+    ws.push([T_VEC + 0.05, tokX(last), CHAR_Y + 92]);
+    ws.push([T_VEC + 0.3, tokX(last), CHAR_Y + 92 + (DIM - 1) * 20]);
     // up the layers: one node per layer, as each layer is built
     for (let l = 0; l < LAYERS; l++) {
       const idx = LAYER_N.slice(0, l).reduce((s, n) => s + n, 0) + Math.floor(LAYER_N[l]! * 0.3);

@@ -139,14 +139,33 @@ async function encodeSegment(url: string, from: number, to: number, out: string,
       },
     },
   });
+  // a crashed renderer or a stalled pipeline must fail loudly (and be retried), never hang
+  let lastFrames = -1, lastChange = performance.now();
+  const crashed = new Promise<never>((_, rej) => {
+    page.on('crash', () => rej(new Error(`[${label}] page crashed`)));
+    browser.on('disconnected', () => rej(new Error(`[${label}] browser disconnected`)));
+  });
+  const watchdog = new Promise<never>((_, rej) => {
+    const iv = setInterval(() => {
+      if (frames !== lastFrames) { lastFrames = frames; lastChange = performance.now(); }
+      else if (performance.now() - lastChange > 180000) { clearInterval(iv); rej(new Error(`[${label}] no frame for 180 s`)); }
+      if (frames >= total) clearInterval(iv);
+    }, 1000);
+  });
+  crashed.catch(() => {}); watchdog.catch(() => {}); // (they may settle after the race is decided)
   try {
-    await page.evaluate((o) => (window as any).__promo.stream(o), { from, to, fps: FPS, ws: `ws://localhost:${server.port}`, samples: SAMPLES, shutter: SHUTTER });
-    while (frames < total) await Bun.sleep(20);
+    await Promise.race([
+      (async () => {
+        await page.evaluate((o) => (window as any).__promo.stream(o), { from, to, fps: FPS, ws: `ws://localhost:${server.port}`, samples: SAMPLES, shutter: SHUTTER });
+        while (frames < total) await Bun.sleep(20);
+      })(),
+      crashed, watchdog,
+    ]);
   } finally {
     ff.stdin.end();
     await ff.exited;
     server.stop();
-    await browser.close();
+    await browser.close().catch(() => {});
     if (logs.length) console.error(`[${label}] BROWSER LOG:\n` + logs.slice(0, 20).join('\n'));
   }
 }
@@ -164,7 +183,12 @@ async function video(url: string, from: number, to: number, out: string, only?: 
     if (b > a) segs.push({ a: a / FPS, b: b / FPS, f: path.join(tmp, `seg${j}.mp4`) });
   }
   const t0 = performance.now();
-  await Promise.all(segs.map((s, j) => encodeSegment(url, s.a, s.b, s.f, `job${j}`, only)));
+  await Promise.all(segs.map(async (s, j) => {
+    for (let attempt = 1; ; attempt++) {
+      try { await encodeSegment(url, s.a, s.b, s.f, `job${j}`, only); return; }
+      catch (e) { if (attempt >= 3) throw e; console.error(`${(e as Error).message} — retrying (attempt ${attempt + 1})`); }
+    }
+  }));
   const list = path.join(tmp, 'list.txt');
   writeFileSync(list, segs.map((s) => `file '${s.f}'`).join('\n'));
   const audio = path.join(ROOT, 'public/audio/promo.wav');

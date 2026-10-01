@@ -243,14 +243,14 @@ export default class SceneDigitalArt extends Scene {
     u.dotK!.value = ease.inOutCubic(clamp((t - T_DOTS) / 0.3));
     u.gridK!.value = smoothstep(T_DOTS + 0.1, T_DOTS + 0.35, t);
     u.outK!.value = smoothstep(T_DEV + 0.2, T_DEV + 0.8, t);
-    const shrink = ease.inOutCubic(clamp((t - T_SHRINK) / (T_END - T_SHRINK - 0.05)));
+    const shrink = ease.inOutCubic(clamp((t - T_SHRINK) / (T_END - T_SHRINK - 0.15)));
     u.shrinkK!.value = shrink;
     const aRect = u.aRect!.value as THREE.Vector4[];
     this.assigned.forEach((k, n) => {
       const p = this.panels[k]!, rc = panelRect(p.i, p.j);
       const [sx, sy] = this.worldToScreen(t, rc.x + rc.w / 2, rc.y + rc.h / 2);
       const [tx, ty] = charPos(GLYPHS[n]!.i);
-      const e = ease.inOutCubic(clamp((t - T_SHRINK - n * 0.008) / (T_END - T_SHRINK - 0.08)));
+      const e = ease.inOutCubic(clamp((t - T_SHRINK - n * 0.006) / (T_END - T_SHRINK - 0.12)));
       const w0 = rc.w * cam.s, h0 = rc.h * cam.s;
       aRect[n]!.set(lerp(sx, tx, e), lerp(sy, ty, e), lerp(w0, 30, e), lerp(h0, 40, e));
     });
@@ -310,7 +310,7 @@ export default class SceneDigitalArt extends Scene {
     // ---- community: the line becomes the threads between people ----
     const nb = this.net;
     nb.clear();
-    const fadeNet = 1 - smoothstep(T_SHRINK, T_END - 0.1, t);
+    const fadeNet = 1 - smoothstep(T_SHRINK, T_SHRINK + 0.2, t);
     if (t > CUE.community && fadeNet > 0) {
       for (const e of this.edges) {
         const g = ease.inOutCubic(clamp((t - e.t0) / 0.32));

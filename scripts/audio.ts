@@ -124,8 +124,8 @@ pad(CUE.gallery, 2.2, [52, 59, 63, 66], 0.09, 1800, 0.3, 1.5, 'tri');
 for (let i = 0; i < 14; i++) tink(CUE.community + i * 0.07 + rnd() * 0.03, 0.025);
 // 06 ored — precise
 for (let i = 0; i < 17; i++) tone({ t0: CUE.ored + 0.12 + i * 0.016, dur: 0.06, amp: 0.05, freq: 2000 + (i % 3) * 300, env: perc(0.012), pan: (i / 16) * 1.6 - 0.8, verb: 0.15 });
-for (let i = 0; i < 5; i++) noise({ t0: CUE.tokens + 0.085 * (i + 1), dur: 0.05, amp: 0.12, lo: 1800, hi: 6000, env: perc(0.012), pan: i / 2 - 1, verb: 0.1 });
-for (let i = 0; i < 8; i++) tone({ t0: CUE.embed + i * 0.03, dur: 0.08, amp: 0.035, freq: midi(88 - i), env: perc(0.02), verb: 0.2 });
+for (let i = 0; i < 4; i++) noise({ t0: CUE.tokens + 0.1 * (i + 1), dur: 0.05, amp: 0.12, lo: 1800, hi: 6000, env: perc(0.012), pan: i / 2 - 1, verb: 0.1 });
+for (let i = 0; i < 10; i++) tone({ t0: CUE.embed + i * 0.025, dur: 0.08, amp: 0.035, freq: midi(88 - i), env: perc(0.02), verb: 0.2 });
 for (let l = 0; l < 5; l++) { const t = CUE.layers - 0.12 + l * 0.1; tone({ t0: t, dur: 0.4, amp: 0.07, freq: midi(52 + l * 5), env: perc(0.12), wave: 'tri', verb: 0.35 }); kick(t, 0.18, 80, 45); }
 pad(CUE.pattern, 1.1, [64, 71, 76, 80], 0.12, 5000, 0.4, 1, 'sine');                                        // glassy swell
 kick(CUE.oredName, 0.5, 90, 36); pad(CUE.oredName, 0.9, [40, 52, 59, 64, 68], 0.15, 1800, 0.06, 1);
