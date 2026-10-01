@@ -65,12 +65,23 @@ export interface Pose {
  * The figure at morph m, gait phase phi (radians), gait amplitude amp (0 = standing), reach (0..1: the near
  * arm extends forward-down at REACH_ANG with the index finger out, the body leans in).
  */
-export function pose(m: number, phi: number, amp = 1, reach = 0): Pose {
+export interface PoseOpts {
+  /** 0..1: kneel on the far knee, near foot planted forward */
+  kneel?: number;
+  /** extra forward lean of the torso (rad) */
+  lean?: number;
+  /** arm overrides: [shoulder angle from straight down (forward +), elbow flex] */
+  armNear?: [number, number];
+  armFar?: [number, number];
+}
+
+export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {}): Pose {
   const P = params(m);
   const bones: Bone[] = [];
   const legs: { hip: P2; knee: P2; ankle: P2; toe: P2 }[] = [];
   const pelvis: P2 = [0, 0];
-  const lean = P.torsoAng + 0.16 * reach;
+  const kneel = o.kneel ?? 0;
+  const lean = P.torsoAng + 0.16 * reach + (o.lean ?? 0);
   const chest = add(pelvis, [Math.sin(lean), Math.cos(lean)], P.torso);
   const shoulder = add(chest, [Math.sin(lean), Math.cos(lean)], -0.02);
   for (let i = 0; i < 2; i++) {
@@ -81,7 +92,16 @@ export function pose(m: number, phi: number, amp = 1, reach = 0): Pose {
     const hip = pelvis;
     const knee = add(hip, dir(a), P.thigh);
     const ankle = add(knee, dir(a - kn), P.shin);
-    const toe = add(ankle, dir(Math.PI / 2 - 0.25 + 0.3 * amp * Math.max(0, Math.cos(ph))), P.foot);
+    let toe = add(ankle, dir(Math.PI / 2 - 0.25 + 0.3 * amp * Math.max(0, Math.cos(ph))), P.foot);
+    if (kneel > 0) {
+      // near leg: thigh forward, shin down, foot flat; far leg: knee on the ground, shin back along it
+      const ka = i === 0 ? lerp(a, 1.35, kneel) : lerp(a, 0.05, kneel);
+      const kk = i === 0 ? lerp(kn, 1.35, kneel) : lerp(kn, 1.62, kneel);
+      const k2 = add(hip, dir(ka), P.thigh);
+      const a2 = add(k2, dir(ka - kk), P.shin);
+      legs.push({ hip, knee: k2, ankle: a2, toe: add(a2, dir(i === 0 ? Math.PI / 2 - 0.1 : -Math.PI / 2 + 0.3), P.foot) });
+      continue;
+    }
     legs.push({ hip, knee, ankle, toe });
   }
   const arms: { sh: P2; el: P2; wr: P2; tip: P2 }[] = [];
@@ -94,6 +114,8 @@ export function pose(m: number, phi: number, amp = 1, reach = 0): Pose {
       const r = ease.inOutCubic(reach);
       a = lerp(a, REACH_ANG, r); el = lerp(el, 0.02, r); hd = lerp(hd, 0, r);
     }
+    const ov = i === 0 ? o.armNear : o.armFar;
+    if (ov) { a = ov[0]; el = ov[1]; hd = 0.1; }
     const sh = shoulder;
     const elb = add(sh, dir(a), P.armU);
     const wr = add(elb, dir(a + el), P.armF);
