@@ -114,7 +114,7 @@ function paintE0(ctx: CanvasRenderingContext2D) {
   // a charcoal ground line under the figure
   dabStroke(ctx, jitter(resample([[1200, 712], [1720, 700]], 20), 3, 9), { width: () => 5, color: () => P.charcoal, alpha: 0.12, rough: 0.6, seed: 507 });
   // THE MARK (identical to the one drawn by the finger)
-  paintFirstMark(ctx, MARK.cx, MARK.cy, MARK.r, MARK.startAngle);
+  paintFirstMark(ctx, MARK.cx, MARK.cy, MARK.r, MARK.startAngle, MARK.dir);
 }
 
 // =================================================================================== E1 GEOMETRIC

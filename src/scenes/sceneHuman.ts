@@ -5,34 +5,34 @@
 import * as THREE from 'three';
 import { Scene, type Frame } from '../engine/scene';
 import { FSPass, canvasTexture, W, H } from '../engine/gl';
-import { TopoPass, defaultTopo, HAND_TIP } from '../shaders/topo';
+import { TopoPass, defaultTopo } from '../shaders/topo';
 import { LineMotif, arc } from '../motifs/line';
 import { WORLD, rotAt, dive, MARK, MARK_START } from '../motifs/world';
+import { handPose, strokeK, markAngle } from '../motifs/hand';
 import { makeCanvas, paintFirstMark } from '../art/paint';
 import { CUE } from '../timeline/cues';
 import { clamp, ease, keys, lerp, smoothstep, TAU } from '../utils/math';
 
-const HAND_ROT = 2.62;
-const HAND_SCALE = 1.55;
 const STROKE0 = CUE.mark, STROKE1 = CUE.markEnd;
 
-/** Angular reveal of a texture around a centre, clockwise from a start angle (screen y down). */
+/** Angular reveal of a texture around a centre from a start angle (screen y down; dir 1 = clockwise, −1 = counter-clockwise). */
 export class AngleReveal {
   pass = new FSPass(/* glsl */ `
-    uniform sampler2D tex; uniform vec2 c; uniform float a0, prog, opacity, soft;
+    uniform sampler2D tex; uniform vec2 c; uniform float a0, prog, opacity, soft, dir;
     void main() {
       vec2 px = FRAG_PX;
       vec4 s = texture(tex, vUv);
       float a = atan(px.y - c.y, px.x - c.x);
-      float d = mod(a - a0 + 0.02, TAU) / TAU;     // 0..1 clockwise from start
+      float d = mod(dir * (a - a0) + 0.02, TAU) / TAU;     // 0..1 along the drawing direction from start
       float m = smoothstep(prog + soft, prog, d);
       if (prog >= 1.0) m = 1.0;
       float al = s.a * m * opacity;
       fragColor = vec4(s.rgb * al, al);
-    }`, { tex: { value: null }, c: { value: new THREE.Vector2() }, a0: { value: 0 }, prog: { value: 0 }, opacity: { value: 1 }, soft: { value: 0.01 } },
+    }`, { tex: { value: null }, c: { value: new THREE.Vector2() }, a0: { value: 0 }, prog: { value: 0 }, opacity: { value: 1 }, soft: { value: 0.01 }, dir: { value: 1 } },
     { blending: THREE.CustomBlending, transparent: true, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor });
-  render(r: THREE.WebGLRenderer, out: THREE.WebGLRenderTarget, tex: THREE.Texture, c: [number, number], a0: number, prog: number, opacity = 1) {
+  render(r: THREE.WebGLRenderer, out: THREE.WebGLRenderTarget, tex: THREE.Texture, c: [number, number], a0: number, prog: number, opacity = 1, dir = 1) {
     const u = this.pass.u;
+    u.dir!.value = dir;
     u.tex!.value = tex; (u.c!.value as THREE.Vector2).set(c[0], c[1]); u.a0!.value = a0; u.prog!.value = prog; u.opacity!.value = opacity;
     this.pass.render(r, out);
   }
@@ -48,25 +48,8 @@ export default class SceneHuman extends Scene {
 
   override init() {
     const { c, ctx } = makeCanvas(W, H);
-    paintFirstMark(ctx, MARK.cx, MARK.cy, MARK.r, MARK.startAngle);
+    paintFirstMark(ctx, MARK.cx, MARK.cy, MARK.r, MARK.startAngle, MARK.dir);
     this.markTex = canvasTexture(c);
-  }
-
-  /** Stroke progress 0..1 (the finger drawing the circle). */
-  strokeK(t: number) { return ease.inOutSine(clamp((t - STROKE0) / (STROKE1 - STROKE0))); }
-
-  /** Fingertip on screen. */
-  tip(t: number): [number, number] {
-    const k = this.strokeK(t);
-    const a = MARK.startAngle + TAU * 0.985 * k;
-    const onRing: [number, number] = [MARK.cx + Math.cos(a) * MARK.r, MARK.cy + Math.sin(a) * MARK.r];
-    // before touching, the finger hovers just above (up-right) and settles onto the point
-    const settle = ease.outCubic(clamp((t - CUE.human) / (CUE.touch - CUE.human)));
-    const hover: [number, number] = [MARK_START[0] + 70 * (1 - settle), MARK_START[1] - 46 * (1 - settle)];
-    if (t < STROKE0) return hover;
-    // after the stroke the hand lifts away up-right
-    const lift = ease.inOutCubic(clamp((t - STROKE1 - 0.05) / 0.5));
-    return [onRing[0] + 240 * lift, onRing[1] - 170 * lift];
   }
 
   render(f: Frame, out: THREE.WebGLRenderTarget) {
@@ -76,17 +59,13 @@ export default class SceneHuman extends Scene {
     s.rot = rotAt(t); s.land.copy(WORLD.land); s.sea = WORLD.sea;
     s.life = 3; s.redCoast = 1; s.reveal = 1; s.atmo = 0;
     s.warm = keys(t, [[CUE.human, 0.35], [CUE.touch, 0.85], [CUE.art0, 1.0]]);
-    // the hand rises out of the ground, draws, then sinks back
-    const rise = ease.outCubic(clamp((t - CUE.human) / 0.6));
+    // the hand arrives with the push-in of 03a (already risen), draws, then sinks back
     const sink = ease.inOutCubic(clamp((t - (STROKE1 + 0.05)) / 0.55));
-    s.handMix = rise * (1 - sink);
-    const tp = this.tip(t);
-    const k = this.strokeK(t);
-    const rot = HAND_ROT + 0.16 * Math.sin(k * Math.PI) - 0.08 * (1 - rise);
-    s.handRot = rot; s.handScale = HAND_SCALE;
-    const c = Math.cos(rot), sn = Math.sin(rot);
-    const tx = HAND_TIP[0] * HAND_SCALE, ty = HAND_TIP[1] * HAND_SCALE;
-    s.handPos = [tp[0] - (c * tx - sn * ty), tp[1] - (sn * tx + c * ty)];
+    s.handMix = 1 - sink;
+    const hp = handPose(t);
+    const k = strokeK(t);
+    s.handRot = hp.rot; s.handScale = hp.scale; s.handFlip = hp.flip; s.handPos = hp.pos;
+    s.figMix = 0; s.handMorph = 1; s.echoR = 95; s.recede = 0.3; s.ghostA = [0, 0];
     // the red coast drains into the fingertip
     s.drainCenter = MARK_START;
     s.drainR = lerp(2600, 0, ease.inCubic(clamp((t - (CUE.human + 0.2)) / (CUE.touch - CUE.human - 0.2))));
@@ -94,7 +73,7 @@ export default class SceneHuman extends Scene {
     this.topo.render(r, out, s);
 
     // the first mark: revealed by the finger
-    if (t >= STROKE0) this.reveal.render(r, out, this.markTex, [MARK.cx, MARK.cy], MARK.startAngle, k, 0.92);
+    if (t >= STROKE0) this.reveal.render(r, out, this.markTex, [MARK.cx, MARK.cy], MARK.startAngle, k, 0.92, MARK.dir);
 
     // the line: drained into the fingertip, then the pen
     const m = this.motif;
@@ -104,9 +83,9 @@ export default class SceneHuman extends Scene {
       const touch = t >= CUE.touch ? Math.exp(-(t - CUE.touch) / 0.12) : 0;
       m.head(MARK_START[0], MARK_START[1], 0.9 + 0.5 * charge + 1.2 * touch, 1 + 0.4 * touch);
     } else {
-      const a = MARK.startAngle + TAU * 0.985 * k;
+      const a = markAngle(k);
       const back = Math.min(1.1, TAU * 0.985 * k);
-      if (back > 0.01) m.trail(arc(MARK.cx, MARK.cy, MARK.r, a - back, a, 90), 2.2, 1.3);
+      if (back > 0.01) m.trail(arc(MARK.cx, MARK.cy, MARK.r, a - MARK.dir * back, a, 90), 2.2, 1.3);
       const fade = 1 - smoothstep(STROKE1 + 0.25, CUE.art0 + 0.25, t) * 0.25;
       m.head(MARK.cx + Math.cos(a) * MARK.r, MARK.cy + Math.sin(a) * MARK.r, 1.2 * fade, 1);
     }

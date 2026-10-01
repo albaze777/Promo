@@ -3,6 +3,7 @@
 // are added as the zoom deepens); the relief of a hand that rises out of the same field; a stone wall.
 import * as THREE from 'three';
 import { FSPass } from '../engine/gl';
+import { NB } from '../motifs/figure';
 
 export const TERRAIN_GLSL = /* glsl */ `
 float terrain(vec3 p, float oct) {
@@ -73,6 +74,19 @@ export interface TopoState {
   handPos: [number, number];
   handRot: number;
   handScale: number;
+  /** −1 mirrors the canonical hand (it reaches in from the upper left) */
+  handFlip: number;
+  /** 03a: the walking figure (bones of the main figure + 2 ghosts), its visibility, and the morph into the hand */
+  figMix: number;
+  handMorph: number;
+  figGrow: number;
+  figSmooth: number;
+  echoR: number;
+  ghostA: [number, number];
+  bones: Float32Array;   // 3 × NB × (ax, ay, bx, by) screen px
+  radii: Float32Array;   // 3 × NB × (ra, rb) px (0 = unused)
+  boxes: Float32Array;   // 3 × (x0, y0, x1, y1)
+  recede: number;
   stone: number;
   drainCenter: [number, number];
   drainR: number;
@@ -83,7 +97,9 @@ export function defaultTopo(): TopoState {
   return {
     center: [960, 540], radius: 236, rot: new THREE.Matrix3(), sea: 0.5, zoom: 1, land: new THREE.Vector3(0, 0, 1),
     life: 0, ripple: 0, rippleAmp: 0, redCoast: 0, reveal: 1, warm: 0, handMix: 0, handPos: [0, 0], handRot: 0, handScale: 1,
-    stone: 0, drainCenter: [0, 0], drainR: 1e5, atmo: 1,
+    stone: 0, drainCenter: [0, 0], drainR: 1e5, atmo: 1, handFlip: 1,
+    figMix: 0, handMorph: 1, figGrow: 0, figSmooth: 6, echoR: 95, ghostA: [0, 0],
+    bones: new Float32Array(3 * NB * 4), radii: new Float32Array(3 * NB * 2), boxes: new Float32Array(12).fill(-1e5), recede: 0.3,
   };
 }
 
@@ -92,8 +108,23 @@ export class TopoPass {
     uniform vec2 center; uniform float radius; uniform mat3 rot; uniform float sea; uniform float zoom;
     uniform vec3 land; uniform float life, ripple, rippleAmp, redCoast, reveal, warm;
     uniform float handMix; uniform vec2 handPos; uniform float handRot, handScale; uniform float stone;
-    uniform vec2 drainCenter; uniform float drainR; uniform float atmo;
+    uniform vec2 drainCenter; uniform float drainR; uniform float atmo; uniform float handFlip;
+    uniform vec4 fBone[${3 * NB}]; uniform vec2 fRad[${3 * NB}]; uniform vec4 fBox[3];
+    uniform float figMix, handMorph, figGrow, figSmooth, echoR, recede; uniform vec2 ghostA;
     ${TERRAIN_GLSL}
+    float sdFig(vec2 p, int f) {
+      vec4 bx = fBox[f];
+      float far = length(max(max(bx.xy - p, p - bx.zw), 0.0));
+      if (far > echoR + 40.0) return far;
+      float d = 1e5;
+      for (int i = 0; i < ${NB}; i++) {
+        vec2 r = fRad[f * ${NB} + i];
+        if (r.x <= 0.0) continue;
+        vec4 b = fBone[f * ${NB} + i];
+        d = smin(d, sdCapsule(p, b.xy, b.zw, r.x, r.y), figSmooth);
+      }
+      return d;
+    }
     ${HAND_GLSL}
     ${STONE_GLSL}
     float iso(float h, float stepU, float w) {
@@ -128,8 +159,15 @@ export class TopoPass {
       float oct = clamp(log2(radius / 11.0), 3.0, 13.0);
       float h = terrain(p, oct);
       // the hand: relief rising out of the same field (screen space)
-      vec2 hp = rot2(-handRot) * (px - handPos) / handScale;
-      float hd = sdHand(hp) * handScale;
+      // the body: the walking figure (03a), the hand (03b), or the morph between them
+      float bodyK = max(handMix, figMix);
+      float hd = 1e5;
+      if (bodyK > 0.0) {
+        float dH = 1e5, dF = 1e5;
+        if (handMorph > 0.0) { vec2 hp = rot2(-handRot) * (px - handPos) / handScale; hp.y *= handFlip; dH = sdHand(hp) * handScale; }
+        if (handMorph < 1.0) dF = sdFig(px, 0) + figGrow;
+        hd = handMorph <= 0.0 ? dF : handMorph >= 1.0 ? dH : mix(dF, dH, handMorph);
+      }
       float stepU = 0.05 / pow(2.0, floor(lvl));
       float stepF = stepU * 0.5;
       float fineK = fract(lvl);
@@ -156,8 +194,8 @@ export class TopoPass {
       vec3 lineC = mix(C_BONE, C_WARMBONE, warm);
       float lines = (cMaj * lineK + cMin * lineK * 0.45);
       // terrain recedes while the hand is present
-      lines *= mix(1.0, 0.3, handMix);
-      lines *= mix(1.0, 0.1, handMix * smoothstep(110.0, 0.0, hd));
+      lines *= mix(1.0, recede, bodyK);
+      lines *= mix(1.0, 0.1, bodyK * smoothstep(echoR + 15.0, 0.0, hd));
       // coastline
       float coast = iso(h - sea, 1.0, 1.4) * step(abs(h - sea), 0.5);
       coast = max(coast, 0.0);
@@ -171,19 +209,29 @@ export class TopoPass {
       float rip = exp(-pow((ang - ripple) * radius * 0.6, 2.0) * 0.5) * rippleAmp;
       c += C_LINE * rip * 0.6 + C_BONE * rip * 0.15;
       // the hand: its own contour system — a dome over its silhouette, sculpted by concentric lines
-      if (handMix > 0.0) {
+      if (bodyK > 0.0) {
         float inside = smoothstep(1.5, -1.5, hd);
         float hh = sqrt(max(0.0, -hd) * 34.0);
         vec2 hg = vec2(dFdx(hh), dFdy(hh));
         vec3 hn = normalize(vec3(-hg * 1.4, 1.0));
         float hs = sat(dot(hn, normalize(vec3(-0.55, 0.65, 0.6))));
         vec3 skin = mix(C_WARMINK * 1.4, C_WARMBONE * 0.13, hs);
-        c = mix(c, skin, inside * handMix * 0.92);
+        c = mix(c, skin, inside * bodyK * 0.92);
         float rings = iso(hh, 6.5, 0.9) * inside * smoothstep(0.0, 6.0, -hd);
         float outline = pxLine(hd, 1.7);
-        float echo = iso(hd, 15.0, 0.8) * smoothstep(95.0, 4.0, hd) * step(0.0, hd);
+        float echo = iso(hd, 15.0 * echoR / 95.0, 0.8) * smoothstep(echoR, 4.0, hd) * step(0.0, hd);
         vec3 lc = mix(C_BONE, C_WARMBONE, 0.6);
-        c += lc * handMix * (rings * (0.16 + 0.32 * hs) + outline * 0.75 + echo * 0.16);
+        c += lc * bodyK * (rings * (0.16 + 0.32 * hs) + outline * 0.75 + echo * 0.16);
+      }
+      // ghosts: the earlier forms of the figure, left behind as fading contour echoes
+      for (int g = 0; g < 2; g++) {
+        float ga = g == 0 ? ghostA.x : ghostA.y;
+        if (ga <= 0.0) continue;
+        float dg = sdFig(px, g + 1);
+        float ins = smoothstep(1.5, -1.5, dg);
+        c = mix(c, c * 0.55, ins * ga * 0.6);
+        float e = iso(dg, 11.0, 0.7) * smoothstep(34.0, 3.0, dg) * step(0.0, dg);
+        c += mix(C_BONE, C_WARMBONE, 0.6) * ga * (pxLine(dg, 1.2) * 0.5 + e * 0.12);
       }
       // stone: contours dissolve into a cave wall
       if (stone > 0.0) {
@@ -199,7 +247,12 @@ export class TopoPass {
     zoom: { value: 1 }, land: { value: new THREE.Vector3() }, life: { value: 0 }, ripple: { value: 0 }, rippleAmp: { value: 0 },
     redCoast: { value: 0 }, reveal: { value: 1 }, warm: { value: 0 }, handMix: { value: 0 }, handPos: { value: new THREE.Vector2() },
     handRot: { value: 0 }, handScale: { value: 1 }, stone: { value: 0 }, drainCenter: { value: new THREE.Vector2() }, drainR: { value: 1e5 },
-    atmo: { value: 1 },
+    atmo: { value: 1 }, handFlip: { value: 1 },
+    fBone: { value: Array.from({ length: 3 * NB }, () => new THREE.Vector4()) },
+    fRad: { value: Array.from({ length: 3 * NB }, () => new THREE.Vector2()) },
+    fBox: { value: Array.from({ length: 3 }, () => new THREE.Vector4(-1e5, -1e5, -1e5, -1e5)) },
+    figMix: { value: 0 }, handMorph: { value: 1 }, figGrow: { value: 0 }, figSmooth: { value: 6 }, echoR: { value: 95 },
+    recede: { value: 0.3 }, ghostA: { value: new THREE.Vector2() },
   });
 
   render(r: THREE.WebGLRenderer, out: THREE.WebGLRenderTarget, s: TopoState) {
@@ -214,7 +267,14 @@ export class TopoPass {
     (u.handPos!.value as THREE.Vector2).set(s.handPos[0], s.handPos[1]);
     u.handRot!.value = s.handRot; u.handScale!.value = s.handScale; u.stone!.value = s.stone;
     (u.drainCenter!.value as THREE.Vector2).set(s.drainCenter[0], s.drainCenter[1]);
-    u.drainR!.value = s.drainR; u.atmo!.value = s.atmo;
+    u.drainR!.value = s.drainR; u.atmo!.value = s.atmo; u.handFlip!.value = s.handFlip;
+    u.figMix!.value = s.figMix; u.handMorph!.value = s.handMorph; u.figGrow!.value = s.figGrow; u.figSmooth!.value = s.figSmooth;
+    u.echoR!.value = s.echoR; u.recede!.value = s.recede; (u.ghostA!.value as THREE.Vector2).set(s.ghostA[0], s.ghostA[1]);
+    if (s.figMix > 0 || s.ghostA[0] > 0 || s.ghostA[1] > 0) {
+      const fb = u.fBone!.value as THREE.Vector4[], fr = u.fRad!.value as THREE.Vector2[], bx = u.fBox!.value as THREE.Vector4[];
+      for (let i = 0; i < 3 * NB; i++) { fb[i]!.fromArray(s.bones, i * 4); fr[i]!.fromArray(s.radii, i * 2); }
+      for (let i = 0; i < 3; i++) bx[i]!.fromArray(s.boxes, i * 4);
+    }
     this.pass.render(r, out);
   }
 }

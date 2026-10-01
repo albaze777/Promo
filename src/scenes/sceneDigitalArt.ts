@@ -20,7 +20,7 @@ import { Rng, clamp, ease, keys, lerp, smoothstep, type V2 } from '../utils/math
 const CS = 37.5, PW_ = 300, PH_ = 225, PX = 337.5, PY = 300;
 const G0: V2 = [810, 427.5];
 const I_RANGE = 4, J_RANGE = 3;
-const T_DOTS = 10.98, T_DEV = 11.32, T_SHRINK = CUE.ored, T_END = CUE.ored + 0.4;
+const T_DOTS = CUE.pixels + 0.48, T_DEV = CUE.pixels + 0.82, T_SHRINK = CUE.ored, T_END = CUE.ored + 0.4;
 const pieceOf = (i: number, j: number) => (i === 0 && j === 0 ? 12 : (((i * 7 + j * 3 + 13) % 12) + 12) % 12);
 const devStart = (i: number, j: number) => T_DEV + 0.075 * Math.hypot(i, j * 1.2) + 0.08 * ((((i * 3 + j * 5 + 70) % 7) + 7) % 7) / 7;
 const panelRect = (i: number, j: number) => ({ x: G0[0] + i * PX, y: G0[1] + j * PY, w: PW_, h: PH_ });

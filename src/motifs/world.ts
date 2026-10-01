@@ -8,7 +8,9 @@ import { terrain } from '../utils/noise32';
 
 export const C0: [number, number] = [960, 540];
 /** The first mark: a circle. Its centre/radius are shared by Human and Art Evolution. */
-export const MARK = { cx: 880, cy: 520, r: 172, startAngle: Math.PI / 3 };
+// The mark starts at its lower left and is drawn counter-clockwise (dir = −1) by a hand reaching in from the
+// upper left: the hand of the figure that walked in from the left in 03a Evolution.
+export const MARK = { cx: 880, cy: 520, r: 172, startAngle: (Math.PI * 2) / 3, dir: -1 };
 export const MARK_START: [number, number] = [MARK.cx + Math.cos(MARK.startAngle) * MARK.r, MARK.cy + Math.sin(MARK.startAngle) * MARK.r];
 export const Z_END = 170;
 const TILT = 0.38;
@@ -53,13 +55,27 @@ export const WORLD = (() => {
 
 export const rotAt = (t: number) => rotMatrix(spinAngle(t, WORLD.phi0));
 
-/** Planet disc on screen at t (the dive), and the screen position of the touchdown point. */
+/** Evolution: the terrain anchor arrives PAN px right of the mark and scrolls back while the figure walks. */
+export const PAN = 760;
+export const PUSH_END = 6;
+export function evoPan(t: number) {
+  if (t <= CUE.evo) return PAN;
+  return PAN * (1 - ease.outSine(clamp((t - CUE.evo) / (CUE.reach + 0.3 - CUE.evo))));
+}
+/** Evolution: the camera push into the reaching hand (scale about MARK_START), 1 → PUSH_END. */
+export function evoPush(t: number) {
+  return Math.exp(Math.log(PUSH_END) * ease.inOutCubic(clamp((t - CUE.push) / (CUE.human - CUE.push))));
+}
+
+/** Planet disc on screen at t (the dive, then the evolution pan and push), and the screen position of the touchdown point. */
 export function dive(t: number) {
-  const u = clamp((t - CUE.dive) / (CUE.human - CUE.dive));
+  const u = clamp((t - CUE.dive) / (CUE.evo - CUE.dive));
   let zoom = Math.exp(Math.log(Z_END) * ease.inOutCubic(u));
-  if (t > CUE.human) zoom = Z_END * Math.exp(0.06 * (t - CUE.human));
-  const k = ease.inOutCubic(clamp((t - CUE.dive) / (CUE.human - CUE.dive)));
-  const L: [number, number] = [lerp(TOUCH[0], MARK_START[0], k), lerp(TOUCH[1], MARK_START[1], k)];
+  if (t > CUE.evo) zoom = Z_END * Math.exp(0.06 * (t - CUE.evo)) * evoPush(t);
+  const k = ease.inOutCubic(u);
+  const L: [number, number] = t <= CUE.evo
+    ? [lerp(TOUCH[0], MARK_START[0] + PAN, k), lerp(TOUCH[1], MARK_START[1], k)]
+    : [MARK_START[0] + evoPan(t), MARK_START[1]];
   const center: [number, number] = [L[0] - (TOUCH[0] - C0[0]) * zoom, L[1] - (TOUCH[1] - C0[1]) * zoom];
   return { center, radius: R0 * zoom, zoom, touch: L };
 }

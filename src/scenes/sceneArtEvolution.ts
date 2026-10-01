@@ -79,7 +79,7 @@ export default class SceneArtEvolution extends Scene {
   penAngle(t: number) {
     const b = Math.max(0, (t - CUE.art0) / BEAT);
     const n = Math.floor(b), fr = b - n;
-    return MARK.startAngle + TAU * (n + ease.inOutCubic(fr));
+    return MARK.startAngle + MARK.dir * TAU * (n + ease.inOutCubic(fr));
   }
 
   render(f: Frame, out: THREE.WebGLRenderTarget) {
@@ -97,9 +97,9 @@ export default class SceneArtEvolution extends Scene {
     const m = this.motif;
     m.clear();
     const a = this.penAngle(t);
-    const da = a - this.penAngle(t - 0.07);
+    const da = Math.abs(a - this.penAngle(t - 0.07));
     const back = Math.min(2.2, Math.max(0.05, da * 4.5));
-    const pts = arc(MARK.cx, MARK.cy, MARK.r, a - back, a, 80).map(([x, y]) => artToScreen(t, x, y));
+    const pts = arc(MARK.cx, MARK.cy, MARK.r, a - MARK.dir * back, a, 80).map(([x, y]) => artToScreen(t, x, y));
     m.trail(pts, 2.4, 1.4);
     const [hx, hy] = artToScreen(t, MARK.cx + Math.cos(a) * MARK.r, MARK.cy + Math.sin(a) * MARK.r);
     m.head(hx, hy, 1.15, 1);

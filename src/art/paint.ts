@@ -121,8 +121,8 @@ export function wobblyCircle(cx: number, cy: number, r: number, a0: number, swee
 }
 
 /** The first mark: an ochre-red pigment circle as made by a finger on stone. Shared by Human and Art. */
-export function paintFirstMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, startAngle: number, seed = 11) {
-  const pts = wobblyCircle(cx, cy, r, startAngle, TAU * 0.985, 0.018, seed, 360);
+export function paintFirstMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, startAngle: number, dir = 1, seed = 11) {
+  const pts = wobblyCircle(cx, cy, r, startAngle, dir * TAU * 0.985, 0.018, seed, 360);
   const ochre = hexRGB('#B4532E'), earth = hexRGB('#8E3B22'), light = hexRGB('#C9743A');
   dabStroke(ctx, pts, {
     width: (k) => lerp(30, 15, k) * (1 + 0.25 * Math.exp(-k * 30)),

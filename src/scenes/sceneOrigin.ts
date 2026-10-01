@@ -12,6 +12,7 @@ import { CUE } from '../timeline/cues';
 import { Rng, clamp, ease, keys, lerp, smoothstep, TAU } from '../utils/math';
 
 const IGN = CUE.ignite;
+const W0 = CUE.world; // the hand-off to World: the line joins its orbit and the disc closes into the sphere
 const N_NODES = 80;
 const N_STARS = 40000;
 
@@ -109,7 +110,7 @@ export default class SceneOrigin extends Scene {
     const cz = this.camPos(t).z;
     const lead = 22 * (1 - Math.exp(-u * 2));
     const f = new THREE.Vector3(10 * Math.sin(1.9 * u), -5 * Math.sin(1.3 * u), cz - 52 - lead);
-    const b = smoothstep(2.1, 2.8, t);
+    const b = smoothstep(W0 - 0.9, W0 - 0.2, t);
     if (b <= 0) return out.copy(f);
     return out.copy(f).lerp(orbitPoint(t), b);
   }
@@ -120,7 +121,7 @@ export default class SceneOrigin extends Scene {
     const cp = this.camPos(t);
     cam.position.copy(cp);
     const look = cp.clone().add(new THREE.Vector3(0, 0, -1));
-    const toC = smoothstep(2.2, 3.0, t);
+    const toC = smoothstep(W0 - 0.8, W0, t);
     look.lerp(C, toC);
     cam.lookAt(look);
     cam.rotateZ(0.05 * Math.sin(clamp((t - IGN) / 2) * Math.PI));
@@ -128,12 +129,12 @@ export default class SceneOrigin extends Scene {
     const fwd = new THREE.Vector3();
     cam.getWorldDirection(fwd);
 
-    this.bg.u.reveal!.value = smoothstep(IGN, IGN + 1.2, t) * (1 - smoothstep(2.6, 3.1, t) * 0.5);
+    this.bg.u.reveal!.value = smoothstep(IGN, IGN + 1.2, t) * (1 - smoothstep(W0 - 0.4, W0 + 0.1, t) * 0.5);
     (this.bg.u.drift!.value as THREE.Vector2).set(cp.x * 0.002, (cp.z * 0.0015) % 100);
     this.bg.render(r, out);
 
     const conv = ease.inOutCubic(clamp((t - CUE.converge) / (CUE.world - CUE.converge)));
-    const sphereK = smoothstep(2.72, 3.0, t);
+    const sphereK = smoothstep(W0 - 0.28, W0, t);
 
     // ---- matter -----------------------------------------------------------------
     const st = this.stars;
@@ -215,14 +216,14 @@ export default class SceneOrigin extends Scene {
         const tj = t - (span * j) / NS;
         if (tj < IGN) continue;
         const p3 = this.headPos(tj);
-        if (t > 2.8 && occluded(p3)) { if (pts.length > 1) m.trail(pts, 2.0, 1.4); pts.length = 0; continue; }
+        if (t > W0 - 0.2 && occluded(p3)) { if (pts.length > 1) m.trail(pts, 2.0, 1.4); pts.length = 0; continue; }
         const s = project(cam, p3);
         if (s[2] < 1) continue;
         pts.push([s[0], s[1]]);
       }
       if (pts.length > 1) m.trail(pts, 2.0, 1.4);
     }
-    if (hs[2] > 1 && !(t > 2.8 && occluded(hp))) m.head(hs[0], hs[1], inten, size);
+    if (hs[2] > 1 && !(t > W0 - 0.2 && occluded(hp))) m.head(hs[0], hs[1], inten, size);
     m.render(r, out);
 
     const flash = t >= IGN ? 0.006 * Math.pow(0.5, (t - IGN) / 0.03) : 0;
