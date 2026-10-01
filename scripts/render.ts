@@ -221,7 +221,7 @@ try {
       const { browser, page } = await openPage(url, 'none');
       to = await page.evaluate(() => (window as any).__promo.duration) as number;
       await browser.close();
-      if (!Number.isFinite(to) || to <= 0) to = 19.5;
+      if (!Number.isFinite(to) || to <= 0) to = 26;
     }
     const out = path.resolve(opt('out', path.join(ROOT, mode === 'scene' ? `out/scene_${argv[1]}.mp4` : 'out/oredlab-promo.mp4'))!);
     await video(url, from, to, out, only);

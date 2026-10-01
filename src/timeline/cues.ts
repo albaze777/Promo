@@ -5,7 +5,21 @@ export const BPM = 120;
 export const BEAT = 60 / BPM;
 export const BAR = BEAT * 4;
 export const STORY_END = 18.0;
-export const DURATION = 19.5;
+
+/**
+ * Story clock vs output clock. Scenes, cues and the beat grid are authored on the story clock; the
+ * film plays it TIME_SCALE× slower, so every transformation gets more room to read (the output beat
+ * grid is BPM / TIME_SCALE = 96 BPM). Change this one number to re-time the whole film.
+ */
+export const TIME_SCALE = 1.25;
+/** Output length of the film (s): the story (18 s → 22.5 s) and a held end card. */
+export const OUTPUT_DURATION = 26.0;
+/** Story-clock length (the last scene's window ends here). */
+export const DURATION = OUTPUT_DURATION / TIME_SCALE;
+/** Output time (s) → story time (s). */
+export const storyTime = (T: number) => T / TIME_SCALE;
+/** Story time (s) → output time (s). */
+export const outputTime = (t: number) => t * TIME_SCALE;
 
 export const CUE = {
   black: 0.0,

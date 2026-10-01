@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { Compositor, FSPass, W, H, PW, PH, makeRT, clearRT } from './gl';
 import { DEFAULT_POST, Post, type PostParams } from './post';
 import type { Frame, Scene, SceneClass, SceneCtx, PostOverrides } from './scene';
+import { storyTime, outputTime } from '../timeline/cues';
 
 export interface TimelineEntry {
   id: string;
@@ -49,7 +50,8 @@ export class Engine {
     this.timeline = timeline;
   }
 
-  get duration() { return Math.max(...this.timeline.map((e) => e.end)); }
+  /** Output duration (s). Timeline windows are on the story clock (see TIME_SCALE in timeline/cues.ts). */
+  get duration() { return outputTime(Math.max(...this.timeline.map((e) => e.end))); }
 
   async init(only?: (e: TimelineEntry) => boolean) {
     const entries = only ? this.timeline.filter(only) : this.timeline;
@@ -80,7 +82,7 @@ export class Engine {
   }
 
   /**
-   * Render film time t. `samples` > 1 averages that many sub-frames spread evenly over
+   * Render output time t (seconds of the film as played; scenes see story time, see TIME_SCALE). `samples` > 1 averages that many sub-frames spread evenly over
    * `shutter` × (1/fps) centred on t: true motion blur and temporal anti-aliasing (offline export).
    * Post parameters are taken from the centre sub-frame. Returns the post params used.
    */
@@ -89,14 +91,14 @@ export class Engine {
     let outTex: THREE.Texture;
     let post: PostParams;
     if (samples <= 1) {
-      ({ tex: outTex, post } = this.composite(t));
+      ({ tex: outTex, post } = this.composite(storyTime(t)));
     } else {
       post = { ...DEFAULT_POST };
       const mid = Math.floor(samples / 2);
       let ping = 0;
       for (let k = 0; k < samples; k++) {
         const u = (k + 0.5) / samples - 0.5;
-        const res = this.composite(Math.max(0, t + (u * shutter) / fps));
+        const res = this.composite(storyTime(Math.max(0, t + (u * shutter) / fps)));
         if (k === mid) post = res.post;
         const a = this.acc[ping]!, b = this.acc[1 - ping]!;
         this.accum.u.sum!.value = b.texture;

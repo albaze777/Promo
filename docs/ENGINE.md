@@ -2,12 +2,16 @@
 
 The film is a web app (TypeScript + three.js, run with bun + Vite). It renders any film time `t` deterministically at 1920×1080, or at a true 3840×2160 with `?scale=2`. The browser preview and the offline export call the same `Engine.render(t)`.
 
+## Two clocks
+
+Scenes, cues (`src/timeline/cues.ts`) and the timeline are authored on the **story clock** (0–20.8 s, a 120 BPM grid). `Engine.render(T)` takes **output time** (0–26 s, what the viewer sees) and converts it with `storyTime(T) = T / TIME_SCALE` before compositing. Scenes only ever see story time. The export API, the preview UI and `scripts/render.ts` all speak output seconds, and `scripts/audio.ts` lays the sound out on the output clock (cues × `TIME_SCALE`). To re-time the film, change `TIME_SCALE` and `OUTPUT_DURATION`.
+
 ## Frame pipeline
 
 ```
-Engine.render(t, samples, shutter)
+Engine.render(T, samples, shutter)                    T = output time
  ├─ for each sub-frame u in the shutter (samples > 1 only):
- │    composite(t + u·shutter/fps)
+ │    composite(storyTime(T + u·shutter/fps))
  │     ├─ every timeline entry active at t renders into its own HDR target (HalfFloat, linear, premultiplied)
  │     ├─ overlapping entries: the later scene either composites `f.under` itself (handlesTransition)
  │     │  or the engine crossfades by f.tin

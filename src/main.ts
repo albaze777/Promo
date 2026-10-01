@@ -8,7 +8,7 @@ import '@fontsource/instrument-serif/400-italic.css';
 import { Engine } from './engine/engine';
 import { PW, PH, SCALE } from './engine/gl';
 import { TIMELINE } from './timeline/timeline';
-import { CUE, BEAT } from './timeline/cues';
+import { CUE, BEAT, TIME_SCALE, outputTime, storyTime } from './timeline/cues';
 import { loadFonts } from './typography/fonts';
 
 const params = new URLSearchParams(location.search);
@@ -35,8 +35,9 @@ function setupExport() {
   document.body.classList.add('export');
   window.__promo = {
     engine, scale: SCALE, width: PW, height: PH, errors: engine.errors, duration: engine.duration,
-    timeline: engine.timeline.map(({ id, start, end }) => ({ id, start, end })),
-    cues: CUE,
+    // windows and cues in output seconds
+    timeline: engine.timeline.map(({ id, start, end }) => ({ id, start: outputTime(start), end: outputTime(end) })),
+    cues: Object.fromEntries(Object.entries(CUE).map(([k, v]) => [k, outputTime(v)])),
     still(t: number, samples = 1, shutter = 0.5) { engine.render(t, samples, shutter); return true; },
     /** Full-resolution PNG of the last frame (base64). */
     async png() {
@@ -89,18 +90,19 @@ function setupPlayer() {
   for (const e of engine.timeline) {
     const m = document.createElement('div');
     m.className = 'mark';
-    m.style.left = `${(e.start / D) * 100}%`;
-    m.style.width = `${((e.end - e.start) / D) * 100}%`;
-    m.title = `${e.id} ${e.start.toFixed(2)}–${e.end.toFixed(2)}`;
+    const s0 = outputTime(e.start), s1 = outputTime(e.end);
+    m.style.left = `${(s0 / D) * 100}%`;
+    m.style.width = `${((s1 - s0) / D) * 100}%`;
+    m.title = `${e.id} ${s0.toFixed(2)}–${s1.toFixed(2)}`;
     m.textContent = e.id;
-    m.onclick = () => seek(e.start);
+    m.onclick = () => seek(s0);
     marks.appendChild(m);
   }
   for (const [name, ct] of Object.entries(CUE)) {
     const c = document.createElement('div');
     c.className = 'cue';
-    c.style.left = `${(ct / D) * 100}%`;
-    c.title = `${name} @ ${ct}s`;
+    c.style.left = `${(outputTime(ct) / D) * 100}%`;
+    c.title = `${name} @ ${outputTime(ct).toFixed(2)}s`;
     cues.appendChild(c);
   }
 
@@ -127,15 +129,15 @@ function setupPlayer() {
   window.addEventListener('keydown', (ev) => {
     const k = ev.key;
     if (k === ' ') { ev.preventDefault(); toggle(); }
-    else if (k === 'ArrowRight') seek(t + (ev.shiftKey ? 1 : BEAT));
-    else if (k === 'ArrowLeft') seek(t - (ev.shiftKey ? 1 : BEAT));
+    else if (k === 'ArrowRight') seek(t + (ev.shiftKey ? 1 : BEAT * TIME_SCALE));
+    else if (k === 'ArrowLeft') seek(t - (ev.shiftKey ? 1 : BEAT * TIME_SCALE));
     else if (k === '.') seek(t + 1 / 60);
     else if (k === ',') seek(t - 1 / 60);
     else if (k === 'Home') seek(0);
-    else if (k === ']') { const e = engine.timeline.find((x) => x.start > t + 0.01); if (e) seek(e.start); }
-    else if (k === '[') { const es = engine.timeline.filter((x) => x.start < t - 0.2); const e = es[es.length - 1]; seek(e ? e.start : 0); }
-    else if (k === 'c') { const cs = Object.values(CUE).filter((c) => c > t + 0.01).sort((a, b) => a - b); if (cs.length) seek(cs[0]!); }
-    else if (k === 'l') { const e = engine.timeline.find((x) => t >= x.start && t < x.end); loop = loop ? null : e ? [e.start, e.end] : null; }
+    else if (k === ']') { const e = engine.timeline.find((x) => outputTime(x.start) > t + 0.01); if (e) seek(outputTime(e.start)); }
+    else if (k === '[') { const es = engine.timeline.filter((x) => outputTime(x.start) < t - 0.2); const e = es[es.length - 1]; seek(e ? outputTime(e.start) : 0); }
+    else if (k === 'c') { const cs = Object.values(CUE).map(outputTime).filter((c) => c > t + 0.01).sort((a, b) => a - b); if (cs.length) seek(cs[0]!); }
+    else if (k === 'l') { const st = storyTime(t); const e = engine.timeline.find((x) => st >= x.start && st < x.end); loop = loop ? null : e ? [outputTime(e.start), outputTime(e.end)] : null; }
     else if (k === 'm') { muted = !muted; if (muted) audio.pause(); else if (playing) audio.play().catch(() => {}); }
     else if (k === 'h') ui.classList.toggle('hidden');
     else if (k === 's') saveStill();
@@ -152,9 +154,10 @@ function setupPlayer() {
     frames++;
     const now = performance.now();
     if (now - fpsT > 500) { fps = (frames * 1000) / (now - fpsT); frames = 0; fpsT = now; }
-    const e = engine.timeline.filter((x) => t >= x.start && t < x.end).map((x) => x.id).join(' + ');
-    const cue = Object.entries(CUE).filter(([, c]) => c <= t).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
-    info.innerHTML = `<b>${t.toFixed(3)}s</b>  beat ${(t / BEAT).toFixed(2)}  [${e || '—'}]  cue: ${cue}  ${fps.toFixed(0)} fps${loop ? '  LOOP' : ''}${muted ? '  MUTED' : ''}   ·  space play  ←/→ beat  ⇧ ±1s  ,/. frame  [/] scene  c next cue  l loop  s still  m mute  h hide`;
+    const st = storyTime(t);
+    const e = engine.timeline.filter((x) => st >= x.start && st < x.end).map((x) => x.id).join(' + ');
+    const cue = Object.entries(CUE).filter(([, c]) => c <= st).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+    info.innerHTML = `<b>${t.toFixed(3)}s</b>  (story ${st.toFixed(2)}s)  beat ${(st / BEAT).toFixed(2)}  [${e || '—'}]  cue: ${cue}  ${fps.toFixed(0)} fps${loop ? '  LOOP' : ''}${muted ? '  MUTED' : ''}   ·  space play  ←/→ beat  ⇧ ±1s  ,/. frame  [/] scene  c next cue  l loop  s still  m mute  h hide`;
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);

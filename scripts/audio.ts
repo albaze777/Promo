@@ -4,7 +4,12 @@
 // sound can never drift from the edit. Replace with music by cutting to the 120 BPM grid.
 //
 //   bun scripts/audio.ts [--out public/audio/promo.wav]
-import { CUE, DURATION, BEAT } from '../src/timeline/cues';
+import { CUE as STORY_CUE, OUTPUT_DURATION, BEAT as STORY_BEAT, TIME_SCALE } from '../src/timeline/cues';
+
+// the sound is laid out on the output clock (cues are authored on the story clock, see TIME_SCALE)
+const CUE = Object.fromEntries(Object.entries(STORY_CUE).map(([k, v]) => [k, v * TIME_SCALE])) as { [K in keyof typeof STORY_CUE]: number };
+const BEAT = STORY_BEAT * TIME_SCALE;
+const DURATION = OUTPUT_DURATION;
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 

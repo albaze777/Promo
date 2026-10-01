@@ -1,10 +1,10 @@
 # OredLab — "One Line" · treatment & style bible
 
-An 18-second identity film for **OredLab** (an art community for creators) and **Ored** (the AI being built from scratch alongside it), followed by a 1.5 s held end card. The film is rendered entirely by code. No footage, images, artwork or media from outside the repository are used.
+A 26-second identity film for **OredLab** (an art community for creators) and **Ored** (the AI being built from scratch alongside it): 22.5 s of story, then a held end card. The film is rendered entirely by code. No footage, images, artwork or media from outside the repository are used.
 
 ## The idea in one paragraph
 
-Everything in the film is drawn by **one line**. At t = 0.5 s it is a single red point in the dark, and from then on it never leaves the frame. It ignites the universe. It orbits the matter that becomes a world, then runs along that world's first coastline, where life starts. It is lifted by a human fingertip and becomes the first mark a person ever made: a circle. Every era of art redraws that same circle: ochre on stone, a symbol on clay, a construction circle in graphite, an ink ensō, a painted sun, a vector path with four anchors. It breaks into pixels, the pixels become a gallery, and the gallery connects into a community, with the line as the threads between people. Then the line becomes the construction path of a system built from first principles: characters, tokens, vectors, layers, and finally a pattern made purely from a rule on a circle. That pattern collapses back into the point it came from, and the point draws one last circle: the **O** of **OredLab**.
+Everything in the film is drawn by **one line**. At t = 0.6 s it is a single red point in the dark, and from then on it never leaves the frame. It ignites the universe. It orbits the matter that becomes a world, then runs along that world's first coastline, where life starts. It is lifted by a human fingertip and becomes the first mark a person ever made: a circle. Every era of art redraws that same circle: ochre on stone, a symbol on clay, a construction circle in graphite, an ink ensō, a painted sun, a vector path with four anchors. It breaks into pixels, the pixels become a gallery, and the gallery connects into a community, with the line as the threads between people. Then the line becomes the construction path of a system built from first principles: characters, tokens, vectors, layers, and finally a pattern made purely from a rule on a circle. That pattern collapses back into the point it came from, and the point draws one last circle: the **O** of **OredLab**.
 
 > The universe, the world, the first mark, the sun in a painting, the ring of a model and the O of the logo are the same circle drawn by the same line.
 
@@ -19,43 +19,45 @@ This is the film's DNA. The audience should never consciously notice it, but the
 
 ## Beat grid
 
-The edit sits on a **120 BPM** grid (beat = 0.5 s, bar = 2 s). Every scene boundary lands on a beat, and the big transformations land on beats as well. `src/timeline/cues.ts` holds the cue sheet that both the visuals and the procedural sound design read, so a licensed track can be cut to the same grid later.
+Scenes and cues are authored on a **story clock** with a 120 BPM grid. The film plays that clock **1.25× slower** (`TIME_SCALE` in `src/timeline/cues.ts`), so the output sits on a **96 BPM** grid (beat = 0.625 s, bar = 2.5 s) and runs 26 s. Every scene boundary and every big transformation lands on a beat. The cue sheet in `src/timeline/cues.ts` is read by both the visuals and the procedural sound design, so a licensed track can be cut to the same grid later. Changing `TIME_SCALE` re-times the whole film.
+
+Times below are output seconds.
 
 | t (s) | cue | what happens |
 |---|---|---|
 | 0.00 | `black` | true black, faint grain |
-| 0.50 | `point` | the point appears: a 2 px red-white core |
-| 0.90 | `inhale` | the point's halo contracts (anticipation) |
-| 1.00 | `ignite` | one hairline shockwave ring; matter expands out of the point |
-| 2.40 | `converge` | matter spirals into an accretion disc |
-| 3.00 | `world` | the disc closes into a sphere; the line becomes its orbit |
-| 3.50 | `land` | sea level falls and continents rise as contour lines |
-| 4.00 | `life` | the line strikes the coast; warmth spreads along it |
-| 4.00–5.00 | `dive` | exponential zoom into the topography |
-| 5.00 | `human` | terrain contours re-form around a hand |
-| 5.75 | `touch` | the fingertip lifts the line |
-| 6.00–6.60 | `mark` | the first mark: a circle in ochre |
-| 7.00 | `art.0` | primitive marks on stone |
-| 7.50 | `art.1` | geometric symbols on clay |
-| 8.00 | `art.2` | graphite sketch, construction geometry |
-| 8.50 | `art.3` | ink, ensō and seal |
-| 9.00 | `art.4` | colour: a full painting (the richest frame of the film) |
-| 10.00 | `art.5` | digital vector form, anchors and handles |
-| 10.50 | `pixels` | the image quantises into pixels |
-| 11.00 | `vectors` | pixels round into vector dots that align into a grid |
-| 11.50 | `gallery` | the grid becomes a wall of original artworks |
-| 12.50 | `community` | profiles, follows, collections: the line becomes the threads |
-| 13.50 | `ored` | panels shrink into characters |
-| 14.00 | `tokens` | characters group into tokens |
-| 14.50 | `vectors` | tokens become vectors, then points in space |
-| 15.00 | `layers` | layers are built one by one along a red path |
-| 15.50 | `pattern` | a rule on a circle: the emergent pattern |
-| 15.75 | `ORED` | name constructed on typographic guides |
-| 16.50 | `collapse` | everything returns to the point |
-| 16.90 | `ring` | the point draws the O |
-| 17.30 | `wordmark` | OredLab |
-| 17.70 | `tagline` | ART HAS NO LIMITS. |
-| 18.00 | `url` | oredlab.com, hold to 19.5 |
+| 0.62 | `point` | the point appears: a 2 px red-white core |
+| 1.12 | `inhale` | the point's halo contracts (anticipation) |
+| 1.25 | `ignite` | one hairline shockwave ring; matter expands out of the point |
+| 3.00 | `converge` | matter spirals into an accretion disc |
+| 3.75 | `world` | the disc closes into a sphere; the line becomes its orbit |
+| 4.38 | `land` | sea level falls and continents rise as contour lines |
+| 5.00 | `life` | the line strikes the coast; warmth spreads along it |
+| 5.00–6.25 | `dive` | exponential zoom into the topography |
+| 6.25 | `human` | terrain contours re-form around a hand |
+| 7.19 | `touch` | the fingertip lifts the line |
+| 7.50–8.25 | `mark` | the first mark: a circle in ochre |
+| 8.75 | `art.0` | primitive marks on stone |
+| 9.38 | `art.1` | geometric symbols on clay |
+| 10.00 | `art.2` | graphite sketch, construction geometry |
+| 10.62 | `art.3` | ink, ensō and seal |
+| 11.25 | `art.4` | colour: a full painting (the richest frame of the film) |
+| 12.50 | `art.5` | digital vector form, anchors and handles |
+| 13.12 | `pixels` | the image quantises into pixels |
+| 13.75 | `vectors` | pixels round into vector dots that align into a grid |
+| 14.38 | `gallery` | the grid becomes a wall of original artworks |
+| 15.62 | `community` | profiles, follows, collections: the line becomes the threads |
+| 16.88 | `ored` | panels shrink into characters |
+| 17.50 | `tokens` | characters group into tokens |
+| 18.12 | `vectors` | tokens become vectors, then points in space |
+| 18.75 | `layers` | layers are built one by one along a red path |
+| 19.38 | `pattern` | a rule on a circle: the emergent pattern |
+| 19.69 | `ORED` | name constructed on typographic guides |
+| 20.62 | `collapse` | everything returns to the point |
+| 21.12 | `ring` | the point draws the O |
+| 21.62 | `wordmark` | OredLab |
+| 22.12 | `tagline` | ART HAS NO LIMITS. |
+| 22.50 | `url` | oredlab.com, hold to 26.0 |
 
 ## Palette
 
@@ -100,33 +102,33 @@ The end card wordmark: **OredLab** in Instrument Sans SemiBold, whose **O is the
 
 ## Scenes
 
-### 01 Origin (0.0–3.0)
-True black. A point fades in at screen centre and breathes once. Its halo contracts, and on **1.0** a single hairline ring expands and dies while ~40k points of matter fly *out* of the point with an `outExpo` velocity profile. That matter is not random: it is distributed along a procedurally generated **cosmic web** (nodes and filaments). The camera, which started almost inside the point, is overtaken by the expansion and then chases the line as it travels through the web. Filaments resolve as faint hairlines, while near stars pass with parallax and far ones stay fixed. On **2.4** everything feels a pull: matter spirals into an accretion disc ahead of the line, the camera settles, and the disc closes into a sphere.
+### 01 Origin (0.00–3.75)
+True black. A point fades in at screen centre and breathes once. Its halo contracts, and on **1.25** a single hairline ring expands and dies while ~40k points of matter fly *out* of the point with an `outExpo` velocity profile. That matter is not random: it is distributed along a procedurally generated **cosmic web** (nodes and filaments). The camera, which started almost inside the point, is overtaken by the expansion and then chases the line as it travels through the web. Filaments resolve as faint hairlines, while near stars pass with parallax and far ones stay fixed. On **3.00** everything feels a pull: matter spirals into an accretion disc ahead of the line, the camera settles, and the disc closes into a sphere.
 
-### 02 World (3.0–5.0)
-A procedural planet drawn as **topography**: iso-height contour hairlines on a dark sphere, lit from upper left, with a thin warm atmosphere rim and no texture maps. Sea level falls and continents rise as nested contours. The line, which has been orbiting, tightens its orbit and touches down on a coastline. From that contact point warmth spreads along the coast: the red coastline grows, and tiny warm specks of life appear on the land. On **4.0** the camera dives with an exponential zoom straight into the topography. Contour octaves are added as the zoom deepens, so the landscape keeps revealing finer contours, like an infinite map.
+### 02 World (3.75–6.25)
+A procedural planet drawn as **topography**: iso-height contour hairlines on a dark sphere, lit from upper left, with a thin warm atmosphere rim and no texture maps. Sea level falls and continents rise as nested contours. The line, which has been orbiting, tightens its orbit and touches down on a coastline. From that contact point warmth spreads along the coast: the red coastline grows, and tiny warm specks of life appear on the land. On **5.00** the camera dives with an exponential zoom straight into the topography. Contour octaves are added as the zoom deepens, so the landscape keeps revealing finer contours, like an infinite map.
 
-### 03 Human (5.0–7.0)
-The terrain field is re-shaped, in the same contour language, into the relief of a **human hand** reaching in from the upper right with its index finger extended. The hand is not drawn: it emerges as a mountain in the topography and is lit by the same hillshade. The grade warms. On **5.75** the line contracts into a point at the fingertip, and the finger draws the **first mark**, a single circle of ochre-red pigment. The hand's contours release and the terrain settles into a stone wall. Matter → human → expression.
+### 03 Human (6.25–8.75)
+The terrain field is re-shaped, in the same contour language, into the relief of a **human hand** reaching in from the upper right with its index finger extended. The hand is not drawn: it emerges as a mountain in the topography and is lit by the same hillshade. The grade warms. On **7.19** the line contracts into a point at the fingertip, and the finger draws the **first mark**, a single circle of ochre-red pigment. The hand's contours release and the terrain settles into a stone wall. Matter → human → expression.
 
-### 04 Art evolution (7.0–10.5)
+### 04 Art evolution (8.75–13.12)
 The circle survives, and the world around it is re-made on every beat. Each era grows out of the previous one along a front that radiates from the pen point:
-1. **Primitive** (7.0): ochre marks, finger lines and a negative hand stencil on stone.
-2. **Geometric** (7.5): concentric rings, friezes and meanders on terracotta.
-3. **Sketch** (8.0): graphite construction geometry on paper, with a gesture figure built from circles.
-4. **Ink** (8.5): a dry-brush ensō, splatter, and a red seal.
-5. **Colour** (9.0): a full original painting in which the circle becomes a vermilion sun over layered fields of brushwork, with a small figure standing in it. This is the richest frame of the film.
-6. **Digital** (10.0): the painting resolves into flat vector shapes, and the sun becomes a perfect vector circle with four anchors and handles.
+1. **Primitive** (8.75): ochre marks, finger lines and a negative hand stencil on stone.
+2. **Geometric** (9.38): concentric rings, friezes and meanders on terracotta.
+3. **Sketch** (10.00): graphite construction geometry on paper, with a gesture figure built from circles.
+4. **Ink** (10.62): a dry-brush ensō, splatter, and a red seal.
+5. **Colour** (11.25): a full original painting in which the circle becomes a vermilion sun over layered fields of brushwork, with a small figure standing in it. This is the richest frame of the film.
+6. **Digital** (12.50): the painting resolves into flat vector shapes, and the sun becomes a perfect vector circle with four anchors and handles.
 
-### 05 Digital art & creators (10.5–13.5)
+### 05 Digital art & creators (13.12–16.88)
 The vector image quantises into pixels. The pixels round into vector dots, align, and draw a grid. The grid opens into a wall of **original procedural artworks**, each with a distinct personality: flow-field brushwork, op-art moiré, a suprematist composition, an ink ensō, dusk strata, a one-line portrait, truchet arcs, a radial bloom, a halftone world, a colour field, a pixel-sort, and a wire mountain. Each piece develops in its own stroke order. Small handles and avatars appear under the pieces (people). The line becomes the **threads** between them: follows, likes and collections, a network over a gallery. The camera pulls back until the network dominates.
 
-### 06 Ored, built from scratch (13.5–16.5)
+### 06 Ored, built from scratch (16.88–20.62)
 The visual language changes to ink, bone hairlines, IBM Plex Mono and red construction lines. The panels collapse into **characters**: `a r t   h a s   n o   l i m i t s`. Brackets close around whole words to make **tokens**, `[art] [has] [no] [limits]`, each with an ID. Every token unfolds into a column vector, and the vectors lift off as **points in space**. The camera tilts into perspective, and **layers** are built one by one, bottom to top, each traced by the red line and joined to the layer below. The camera then rises over the axis of the stack, the nodes fall onto a ring, and a rule as simple as *connect n to k·n* draws an **emergent pattern**: order from arithmetic. Over it, **ORED** is constructed on its typographic guides, with **BUILT FROM SCRATCH** beneath it.
 
-### 07 OredLab (16.5–19.5)
-Everything collapses back into the point, in the same position and at the same size as at t = 0.5. The film rhymes with its own first frame. The point draws one circle, which slides into place as the **O of OredLab** while the rest of the wordmark is revealed from behind it. Then **ART HAS NO LIMITS.** appears, then **oredlab.com**. The card holds, clean, for 1.5 s.
+### 07 OredLab (20.62–26.00)
+Everything collapses back into the point, in the same position and at the same size as at t = 0.6. The film rhymes with its own first frame. The point draws one circle, which slides into place as the **O of OredLab** while the rest of the wordmark is revealed from behind it. Then **ART HAS NO LIMITS.** appears, then **oredlab.com**. The card holds, clean, for about 3.4 s.
 
 ## Sound
 
-The film works silently. A deterministic procedural sound design (`scripts/audio.ts`, rendered to `public/audio/promo.wav`) is generated from the same cue sheet: a sub swell, the point's tick, the ignition boom, an evolving pad that warms at the human, rising plucks on each era, digital ticks, precise mono blips for the tokens, a reverse-suck into the collapse and a final chord at the logo. Replace it with music by cutting to the 120 BPM grid.
+The film works silently. A deterministic procedural sound design (`scripts/audio.ts`, rendered to `public/audio/promo.wav`) is generated from the same cue sheet: a sub swell, the point's tick, the ignition boom, an evolving pad that warms at the human, rising plucks on each era, digital ticks, precise mono blips for the tokens, a reverse-suck into the collapse and a final chord at the logo. Replace it with music by cutting to the 96 BPM output grid.
