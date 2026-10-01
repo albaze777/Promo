@@ -429,7 +429,7 @@ export default class SceneDigitalArt extends Scene {
           bool inPanel = inGrid && lp.x < PW && lp.y < PH;
           float iso = (chain ? 1.0 : 1.0 - isolate);
           vec3 thr = C_LINE * 1.1 * threads(q, pw) * threadK * (inGrid ? 1.0 : 0.0);
-          if (!inPanel) { c += wt * iso * (bg + thr); break; }
+          if (!inPanel) { c += wt * (bg + thr * iso); wt = 0.0; break; }
           float ppx = PW * Zs;
           float portal = L < 3 ? smoothstep(420.0, 900.0, ppx) : 0.0;
           if (L == ${LEVEL_END} && chain) portal = 0.0;
@@ -452,11 +452,11 @@ export default class SceneDigitalArt extends Scene {
             if (assignedHere) la = 0.0;
           }
           a = mix(bg, a, la) + thr * 0.35;
-          c += wt * iso * (1.0 - portal) * a;
+          c += wt * (1.0 - portal) * mix(bg, a, iso);
           wt *= portal;
           if (wt < 0.002) break;
           chain = chain && ij == vec2(0.0);
-          if (!chain && isolate >= 1.0) break;
+          if (!chain && isolate >= 1.0) { c += wt * bg; wt = 0.0; break; }
           q = CC + (lp - vec2(PW, PH) * 0.5) * KN;
           Zs /= KN;
         }
