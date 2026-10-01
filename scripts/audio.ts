@@ -163,6 +163,8 @@ tone({ t0: CUE.meteor, dur: CUE.impact - CUE.meteor, amp: 0.06, freq: (tl) => 24
 noise({ t0: CUE.meteor, dur: CUE.impact - CUE.meteor, amp: 0.26, lo: (u) => 200 + 1500 * u, hi: (u) => 800 + 8000 * u ** 3, env: (u) => u ** 3, verb: 0.3 });
 tone({ t0: CUE.impact, dur: 3.0, amp: 0.5, freq: (tl) => 28 + 80 * Math.exp(-tl / 0.15), env: perc(0.9, 0.003), verb: 0.35 }); // impact (the ignition, again)
 noise({ t0: CUE.impact, dur: 2.2, amp: 0.32, lo: 40, hi: (u) => 7000 * Math.exp(-u * 5) + 300, env: perc(0.35), verb: 0.6 });
+noise({ t0: CUE.impact + 0.05, dur: CUE.boom - CUE.impact + 1.6, amp: 0.2, lo: 30, hi: 420, env: swell(0.15, 1.3), verb: 0.5 }); // the fireball's roar
+for (let i = 0; i < 40; i++) { const t = CUE.impact + 0.1 + rnd() * (CUE.boom - CUE.impact); noise({ t0: t, dur: 0.06, amp: 0.05 + 0.05 * rnd(), lo: 800, hi: 6000, env: perc(0.015), pan: rnd() * 1.2 - 0.9, verb: 0.3 }); } // debris crackle
 zoomOut(CUE.dinoOut + 0.1, 1.6);
 
 // 05b the wheel

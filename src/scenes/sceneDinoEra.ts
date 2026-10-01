@@ -55,13 +55,30 @@ export default class SceneDinoEra extends PanelScene {
   sparks: { tb: number; dx: number; dy: number }[] = [];
   pass = new FSPass(/* glsl */ `
     uniform float t, camS, camX, heat, mBright;
-    uniform vec4 box0, box1, mBox, sBox;
+    uniform vec4 mBox, sBox; uniform vec4 gBox[8]; uniform vec2 gRange[8];
     uniform vec2 mtr[${NFIRE}]; uniform vec3 smk[${NSMOKE}];
     uniform sampler2D ridges, fx;
     ${BODY_COMMON_GLSL}
     ${bodyGLSL('cr', NS + NR)}
     const vec2 I = vec2(${I[0].toFixed(1)}, ${I[1].toFixed(1)});
     const float H0 = ${H0.toFixed(1)};
+    /** A creature as up to four groups of parts (legs, torso, head, tail), each with its own bounding box:
+     *  a pixel only evaluates the groups near it. The groups are smooth-unioned and their normals blended. */
+    Body creature(vec2 px, int g0) {
+      Body R; R.d = 1e5; R.mat = 0.0; R.uv = vec2(0.0); R.r = 1.0; R.t = vec2(1.0, 0.0); R.round = 0.0; R.n = vec3(0.0, 0.0, 1.0);
+      vec3 nacc = vec3(0.0, 0.0, 1e-4);
+      for (int g = 0; g < 4; g++) {
+        vec2 rg = gRange[g0 + g];
+        if (rg.y < 0.5) continue;
+        Body b = crBody(px, int(rg.x), int(rg.y), gBox[g0 + g]);
+        nacc += b.n * exp(-clamp(b.d, -40.0, 40.0) / 6.0);
+        float dd = smin(R.d, b.d, 12.0);
+        if (b.d < R.d) R = b;
+        R.d = dd;
+      }
+      R.n = normalize(nacc);
+      return R;
+    }
     vec2 cam(vec2 p, float depth) { return vec2(960.0, 640.0) + (p - vec2(960.0, 640.0)) / camS - vec2(camX * depth / camS, 0.0); }
     float ridgeTex(float x, float ch) { vec4 r = texture(ridges, vec2((x + 1024.0) / 4096.0, 0.5)); return ch < 0.5 ? r.r : r.g; }
     vec3 hatch(vec3 c, float y, float top, float bottom, vec3 lineC) {
@@ -221,8 +238,8 @@ export default class SceneDinoEra extends PanelScene {
       vec3 Lc = duskC + vec3(1.0, 0.75, 0.5) * mBright * 0.6;
       if (ti > 0.0) { L = normalize(vec3(I - px, 240.0)); Lc = duskC * 0.4 + warmL * (0.45 + fireL * 0.8) + vec3(1.0) * flash * 1.2; }
       vec3 lineC = mix(C_BONE, C_WARMBONE, 0.5) * 0.55;
-      Body b1 = crBody(px, 0, ${NS}, box0);
-      Body b2 = crBody(px, ${NS}, ${NR}, box1);
+      Body b1 = creature(px, 0);
+      Body b2 = creature(px, 4);
       c = bodyShade(c, b1, L, Lc, vec3(0.105, 0.088, 0.06), vec3(0.24, 0.2, 0.14), 0.15, 1.0, lineC, 7.5, 1.0);
       c = bodyShade(c, b2, L, Lc, vec3(0.072, 0.05, 0.034), vec3(0.22, 0.16, 0.1), 1.0, 1.0, lineC, 7.5, 1.0);
       // ---- the shockwave: the film's hairline ring, now a pressure front ----
@@ -235,7 +252,8 @@ export default class SceneDinoEra extends PanelScene {
       fragColor = vec4(c, 1.0);
     }`, {
     t: { value: 0 }, camS: { value: 1 }, camX: { value: 0 }, heat: { value: 0 }, mBright: { value: 0 },
-    box0: { value: new THREE.Vector4() }, box1: { value: new THREE.Vector4() }, mBox: { value: new THREE.Vector4() }, sBox: { value: new THREE.Vector4() },
+    gBox: { value: Array.from({ length: 8 }, () => new THREE.Vector4(-1e5, -1e5, -1e5, -1e5)) }, gRange: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) },
+    mBox: { value: new THREE.Vector4() }, sBox: { value: new THREE.Vector4() },
     mtr: { value: Array.from({ length: NFIRE }, () => new THREE.Vector2(-1e4, -1e4)) },
     smk: { value: Array.from({ length: NSMOKE }, () => new THREE.Vector3(0, 0, -1)) },
     ridges: { value: null }, fx: { value: null },
@@ -292,6 +310,8 @@ export default class SceneDinoEra extends PanelScene {
     const up = ease.inOutCubic(clamp((t - (METEOR + 0.6)) / 0.9));
     const R: V2 = [1300 + 34 * alarm, 655 - 4 * Math.sin(t * 1.6)];
     const out: Part[] = [];
+    let grp = 0;
+    const push = (...ps: Part[]) => { for (const q of ps) out.push({ ...q, g: grp }); };
     const G = 935;
     for (const [ox, far] of [[-112, 1], [136, 1], [-138, 0], [112, 0]] as const) {
       const s = far ? 0.88 : 1;
@@ -300,13 +320,14 @@ export default class SceneDinoEra extends PanelScene {
       const knee: V2 = [hip[0] + 8 + shift, hip[1] + (G - hip[1]) * 0.5];
       const ankle: V2 = [hip[0] + shift * 1.5 - 4, G - 36];
       const sole: V2 = [ankle[0] - 8, G - 8 - far * 4];
-      out.push(P(hip, knee, 48 * s, 36 * s, MAT.SCALE, 12), P(knee, ankle, 34 * s, 29 * s, MAT.SCALE, 8), P(ankle, sole, 30 * s, 35 * s, MAT.SCALE, 6));
-      for (let c = 0; c < 3; c++) { const b: V2 = [sole[0] - 30 + c * 13, G - 9 - far * 4]; out.push(P(b, [b[0] - 9, G - 3 - far * 4], 5 * s, 2 * s, MAT.HORN, 0)); }
+      push(P(hip, knee, 48 * s, 36 * s, MAT.SCALE, 12), P(knee, ankle, 34 * s, 29 * s, MAT.SCALE, 8), P(ankle, sole, 30 * s, 35 * s, MAT.SCALE, 6));
+      for (let c = 0; c < 3; c++) { const b: V2 = [sole[0] - 30 + c * 13, G - 9 - far * 4]; push(P(b, [b[0] - 9, G - 3 - far * 4], 5 * s, 2 * s, MAT.HORN, 0)); }
     }
-    out.push(P([R[0] + 150, R[1] + 4], [R[0] - 130, R[1] - 14], 104, 116, MAT.SCALE, 20));
-    out.push(P([R[0] + 70, R[1] + 42], [R[0] - 70, R[1] + 42], 86, 86, MAT.SCALE, 30));
-    out.push(P([R[0] - 120, R[1] - 28], [R[0] - 119, R[1] - 28], 96, 96, MAT.SCALE, 30));
-    out.push(P([R[0] + 122, R[1] - 22], [R[0] + 123, R[1] - 22], 92, 92, MAT.SCALE, 30));
+    grp = 1;
+    push(P([R[0] + 150, R[1] + 4], [R[0] - 130, R[1] - 14], 104, 116, MAT.SCALE, 20));
+    push(P([R[0] + 70, R[1] + 42], [R[0] - 70, R[1] + 42], 86, 86, MAT.SCALE, 30));
+    push(P([R[0] - 120, R[1] - 28], [R[0] - 119, R[1] - 28], 96, 96, MAT.SCALE, 30));
+    push(P([R[0] + 122, R[1] - 22], [R[0] + 123, R[1] - 22], 92, 92, MAT.SCALE, 30));
     // neck: grazing low, flinching up, then turned to the sky
     const N0: V2 = [R[0] - 200, R[1] - 52];
     const graze: V2 = [790 + 26 * Math.sin(t * 1.25), 872 + 16 * Math.sin(t * 2.5)];
@@ -314,17 +335,18 @@ export default class SceneDinoEra extends PanelScene {
     const ctrl: V2 = [lerp(N0[0] - 230, N0[0] - 60, alarm), lerp(N0[1] - 120, N0[1] - 260, alarm)];
     const pts: V2[] = [];
     for (let i = 0; i <= 10; i++) { const u = i / 10, v = 1 - u; pts.push([v * v * N0[0] + 2 * u * v * ctrl[0] + u * u * Hd[0], v * v * N0[1] + 2 * u * v * ctrl[1] + u * u * Hd[1]]); }
-    for (let i = 0; i < 10; i++) out.push(P(pts[i]!, pts[i + 1]!, lerp(60, 23, i / 10), lerp(60, 23, (i + 1) / 10), MAT.SCALE, 10));
+    grp = 2;
+    for (let i = 0; i < 10; i++) push(P(pts[i]!, pts[i + 1]!, lerp(60, 23, i / 10), lerp(60, 23, (i + 1) / 10), MAT.SCALE, 10));
     // head: skull, tapering snout, a jaw that chews, eye and nostril
     const ha = Math.atan2(Hd[1] - pts[9]![1], Hd[0] - pts[9]![0]) - 0.6;
     const d = dirOf(ha), n: V2 = [d[1], -d[0]];            // n: the underside of a left-facing head
     const chew = (1 - alarm) * 0.12 * Math.max(0, Math.sin(t * 7));
-    out.push(P(Hd, add(Hd, d, 40), 26, 23, MAT.SCALE, 10));
-    out.push(P(add(Hd, d, 38), add(Hd, d, 80), 22, 14, MAT.SCALE, 8));
+    push(P(Hd, add(Hd, d, 40), 26, 23, MAT.SCALE, 10));
+    push(P(add(Hd, d, 38), add(Hd, d, 80), 22, 14, MAT.SCALE, 8));
     const j0 = add(add(Hd, d, 12), n, 13), jd = dirOf(ha + (chew * (d[0] < 0 ? -1 : 1)));
-    out.push(P(j0, add(j0, jd, 64), 13, 8, MAT.SCALE, 6));
-    out.push(P(add(add(Hd, d, 20), n, -9), add(add(Hd, d, 20), n, -9), 5.5, 5.5, MAT.EYE, -1));
-    out.push(P(add(add(Hd, d, 74), n, -7), add(add(Hd, d, 74), n, -7), 3, 3, MAT.DARK, -1));
+    push(P(j0, add(j0, jd, 64), 13, 8, MAT.SCALE, 6));
+    push(P(add(add(Hd, d, 20), n, -9), add(add(Hd, d, 20), n, -9), 5.5, 5.5, MAT.EYE, -1));
+    push(P(add(add(Hd, d, 74), n, -7), add(add(Hd, d, 74), n, -7), 3, 3, MAT.DARK, -1));
     // tail
     const tail: V2[] = [];
     for (let i = 0; i <= 12; i++) {
@@ -332,7 +354,8 @@ export default class SceneDinoEra extends PanelScene {
       const sw = Math.sin(t * 1.1 - u * 2.2) * 40 * u * u;
       tail.push([R[0] + 200 + 470 * u, R[1] - 10 + 210 * u * u - 60 * u + sw]);
     }
-    for (let i = 0; i < 12; i++) out.push(P(tail[i]!, tail[i + 1]!, lerp(76, 4, i / 12), lerp(76, 4, (i + 1) / 12), MAT.SCALE, 12));
+    grp = 3;
+    for (let i = 0; i < 12; i++) push(P(tail[i]!, tail[i + 1]!, lerp(76, 4, i / 12), lerp(76, 4, (i + 1) / 12), MAT.SCALE, 12));
     return out;
   }
 
@@ -376,43 +399,48 @@ export default class SceneDinoEra extends PanelScene {
     const D = (p: V2): V2 => [p[0], p[1] + dy];
     const Dp = (b: Part): Part => ({ ...b, a: D(b.a), b: D(b.b) });
     const out: Part[] = [];
-    out.push(...legs[1]!.map(Dp));
-    out.push(Dp(P(Pv, [Pv[0] + 0.5, Pv[1]], 58, 58, MAT.SCALE, 20)));
-    out.push(Dp(P(Pv, chest, 60, 66, MAT.SCALE, 20)));
-    out.push(Dp(P(add(add(Pv, fwd, 60), up, -34), add(add(Pv, fwd, 61), up, -34), 52, 52, MAT.SCALE, 25)));
+    let grp = 0;
+    const push = (...ps: Part[]) => { for (const q of ps) out.push({ ...q, g: grp }); };
+    push(...legs[1]!.map(Dp));
+    grp = 1;
+    push(Dp(P(Pv, [Pv[0] + 0.5, Pv[1]], 58, 58, MAT.SCALE, 20)));
+    push(Dp(P(Pv, chest, 60, 66, MAT.SCALE, 20)));
+    push(Dp(P(add(add(Pv, fwd, 60), up, -34), add(add(Pv, fwd, 61), up, -34), 52, 52, MAT.SCALE, 25)));
     // neck and skull
     const nAng = lean - 0.75 - 0.5 * look;
     const neckTop = add(chest, dirOf(nAng), 72);
-    out.push(Dp(P(chest, add(chest, dirOf(nAng), 36), 52, 45, MAT.SCALE, 12)), Dp(P(add(chest, dirOf(nAng), 36), neckTop, 45, 38, MAT.SCALE, 12)));
+    push(Dp(P(chest, add(chest, dirOf(nAng), 36), 52, 45, MAT.SCALE, 12)), Dp(P(add(chest, dirOf(nAng), 36), neckTop, 45, 38, MAT.SCALE, 12)));
     const hAng = lerp(lerp(0.3, 0.06, lungeU), -0.85, look);
     const dH = dirOf(hAng), down: V2 = [-dH[1], dH[0]], upH: V2 = [dH[1], -dH[0]];
     const snoutR = (s: number) => s < 58 ? lerp(42, 36, s / 58) : lerp(34, 21, (s - 58) / 80);
-    out.push(Dp(P(neckTop, add(neckTop, dH, 58), 42, 36, MAT.SCALE, 10)), Dp(P(add(neckTop, dH, 56), add(neckTop, dH, 138), 34, 21, MAT.SCALE, 8)));
-    out.push(Dp(P(add(add(neckTop, dH, 22), upH, 28), add(add(neckTop, dH, 50), upH, 24), 13, 10, MAT.SCALE, 6)));       // brow ridge
-    out.push(Dp(P(add(add(neckTop, dH, 42), upH, 13), add(add(neckTop, dH, 42), upH, 13), 7, 7, MAT.EYE, -1)));
-    out.push(Dp(P(add(add(neckTop, dH, 126), upH, 10), add(add(neckTop, dH, 126), upH, 10), 3.5, 3.5, MAT.DARK, -1)));
+    grp = 2;
+    push(Dp(P(neckTop, add(neckTop, dH, 58), 42, 36, MAT.SCALE, 10)), Dp(P(add(neckTop, dH, 56), add(neckTop, dH, 138), 34, 21, MAT.SCALE, 8)));
+    push(Dp(P(add(add(neckTop, dH, 22), upH, 28), add(add(neckTop, dH, 50), upH, 24), 13, 10, MAT.SCALE, 6)));       // brow ridge
+    push(Dp(P(add(add(neckTop, dH, 42), upH, 13), add(add(neckTop, dH, 42), upH, 13), 7, 7, MAT.EYE, -1)));
+    push(Dp(P(add(add(neckTop, dH, 126), upH, 10), add(add(neckTop, dH, 126), upH, 10), 3.5, 3.5, MAT.DARK, -1)));
     // the jaw opens in the lunge and at the sky; the mouth's inside, then the teeth
     const jaw = 0.08 + 0.5 * Math.sin(Math.PI * clamp((t - LUNGE - 0.1) / 0.6)) + 0.35 * look * (0.6 + 0.4 * Math.sin(t * 9));
     const jA = hAng + jaw, dJ = dirOf(jA), upJ: V2 = [dJ[1], -dJ[0]];
     const j0 = add(neckTop, dirOf(hAng + 1.2), 18);
-    out.push(Dp(P(j0, add(j0, dJ, 120), 24, 12, MAT.SCALE, 6)));
+    push(Dp(P(j0, add(j0, dJ, 120), 24, 12, MAT.SCALE, 6)));
     const dM = dirOf(hAng + jaw * 0.5);
-    out.push(Dp(P(add(j0, dM, 14), add(j0, dM, 104), 4, Math.max(3, 100 * Math.sin(jaw * 0.5) * 0.85), MAT.DARK, 0)));
+    push(Dp(P(add(j0, dM, 14), add(j0, dM, 104), 4, Math.max(3, 100 * Math.sin(jaw * 0.5) * 0.85), MAT.DARK, 0)));
     if (jaw > 0.14) {
-      for (let k = 0; k < 6; k++) { const s = 66 + k * 13, b = add(add(neckTop, dH, s), down, snoutR(s) - 3); out.push(Dp(P(b, add(b, down, 12 - k), 3.6, 0.8, MAT.HORN, 0))); }
-      for (let k = 0; k < 5; k++) { const s = 46 + k * 14, b = add(add(j0, dJ, s), upJ, lerp(24, 12, s / 120) - 3); out.push(Dp(P(b, add(b, upJ, 10 - k), 3.2, 0.8, MAT.HORN, 0))); }
+      for (let k = 0; k < 6; k++) { const s = 66 + k * 13, b = add(add(neckTop, dH, s), down, snoutR(s) - 3); push(Dp(P(b, add(b, down, 12 - k), 3.6, 0.8, MAT.HORN, 0))); }
+      for (let k = 0; k < 5; k++) { const s = 46 + k * 14, b = add(add(j0, dJ, s), upJ, lerp(24, 12, s / 120) - 3); push(Dp(P(b, add(b, upJ, 10 - k), 3.2, 0.8, MAT.HORN, 0))); }
     }
+    grp = 1;
     // arms: small, two fingers with claws
     const sh = add(add(chest, fwd, 18), up, -34);
     const el: V2 = [sh[0] + 30, sh[1] + 26], wr: V2 = [sh[0] + 48, sh[1] + 16 + 4 * Math.sin(t * 3)];
     for (const side of [0, 1]) {
       const o: V2 = [side * -8, side * -4];
       const S = (p: V2): V2 => [p[0] + o[0], p[1] + o[1]];
-      out.push(Dp(P(S(sh), S(el), 13, 10, MAT.SCALE, 6)), Dp(P(S(el), S(wr), 10, 7, MAT.SCALE, 4)));
-      for (let fI = 0; fI < 2; fI++) { const ft: V2 = [wr[0] + 14 + o[0], wr[1] + 4 + fI * 7 + o[1]]; out.push(Dp(P(S(wr), ft, 5, 3, MAT.SCALE, 2)), Dp(P(ft, [ft[0] + 5, ft[1] + 6], 2.6, 0.8, MAT.HORN, 0))); }
+      push(Dp(P(S(sh), S(el), 13, 10, MAT.SCALE, 6)), Dp(P(S(el), S(wr), 10, 7, MAT.SCALE, 4)));
+      for (let fI = 0; fI < 2; fI++) { const ft: V2 = [wr[0] + 14 + o[0], wr[1] + 4 + fI * 7 + o[1]]; push(Dp(P(S(wr), ft, 5, 3, MAT.SCALE, 2)), Dp(P(ft, [ft[0] + 5, ft[1] + 6], 2.6, 0.8, MAT.HORN, 0))); }
     }
     // dorsal scutes along the back
-    for (let k = 0; k < 6; k++) { const b = add(add(Pv, fwd, 120 - k * 30), up, 58 - Math.abs(k - 2) * 3); out.push(Dp(P(b, add(b, up, 6), 8, 4, MAT.SCALE, 0))); }
+    for (let k = 0; k < 6; k++) { const b = add(add(Pv, fwd, 120 - k * 30), up, 58 - Math.abs(k - 2) * 3); push(Dp(P(b, add(b, up, 6), 8, 4, MAT.SCALE, 0))); }
     // tail
     const tail: V2[] = [];
     for (let i = 0; i <= 12; i++) {
@@ -421,8 +449,10 @@ export default class SceneDinoEra extends PanelScene {
       const ta = Math.PI + lean * 0.9 - 0.1;
       tail.push(D([Pv[0] + Math.cos(ta) * 470 * u + 20, Pv[1] - 6 + Math.sin(ta) * 470 * u + sw + 30 * u * u]));
     }
-    for (let i = 0; i < 12; i++) out.push(P(tail[i]!, tail[i + 1]!, lerp(56, 4, i / 12), lerp(56, 4, (i + 1) / 12), MAT.SCALE, 12));
-    out.push(...legs[0]!.map(Dp));
+    grp = 3;
+    for (let i = 0; i < 12; i++) push(P(tail[i]!, tail[i + 1]!, lerp(56, 4, i / 12), lerp(56, 4, (i + 1) / 12), MAT.SCALE, 12));
+    grp = 0;
+    push(...legs[0]!.map(Dp));
     return out;
   }
 
@@ -458,11 +488,19 @@ export default class SceneDinoEra extends PanelScene {
     (u.sBox!.value as THREE.Vector4).set(sx0, sy0, sx1, sy1);
     // creatures (camera applied to every joint)
     const cs = (b: Part): Part => ({ ...b, a: toScr(t, b.a), b: toScr(t, b.b), ra: b.ra * cam.s, rb: b.rb * cam.s });
-    const sa = this.sauropod(t).map(cs), rx = this.rex(t).map(cs);
-    this.parts.set(0, NS, sa);
-    this.parts.set(NS, NR, rx);
-    (u.box0!.value as THREE.Vector4).copy(boxOf(sa, 16));
-    (u.box1!.value as THREE.Vector4).copy(boxOf(rx, 12));
+    const gBox = u.gBox!.value as THREE.Vector4[], gRange = u.gRange!.value as THREE.Vector2[];
+    const place = (parts: Part[], first: number, max: number, g0: number) => {
+      const sorted = parts.map(cs).sort((p, q) => (p.g ?? 0) - (q.g ?? 0));
+      this.parts.set(first, max, sorted);
+      for (let g = 0; g < 4; g++) {
+        const idx = sorted.map((p, i) => ((p.g ?? 0) === g ? i : -1)).filter((i) => i >= 0);
+        if (!idx.length) { gRange[g0 + g]!.set(0, 0); gBox[g0 + g]!.set(-1e5, -1e5, -1e5, -1e5); continue; }
+        gRange[g0 + g]!.set(first + idx[0]!, idx.length);
+        gBox[g0 + g]!.copy(boxOf(idx.map((i) => sorted[i]!), 10));
+      }
+    };
+    place(this.sauropod(t), 0, NS, 0);
+    place(this.rex(t), NS, NR, 4);
 
     // burning debris and the meteor's sparks, into their own layer (the ridge hides what falls behind it)
     const fx = this.fx;

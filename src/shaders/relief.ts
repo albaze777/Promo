@@ -15,9 +15,9 @@ export function bonesGLSL(name: string, n: number) {
     float far = length(max(max(box.xy - p, p - box.zw), 0.0));
     if (far > 24.0) return far;
     float d = 1e5;
-    for (int i = 0; i < ${n}; i++) {
-      if (i < first) continue;
-      if (i >= first + count) break;
+    for (int j = 0; j < ${n}; j++) {
+      if (j >= count) break;
+      int i = first + j;
       vec2 r = ${name}R[i];
       if (r.x <= 0.0) continue;
       vec4 b = ${name}A[i];
@@ -103,7 +103,7 @@ export function chain(pts: [number, number][], r0: number, r1: number): Capsule[
 /** Materials of detailed bodies. */
 export const MAT = { SCALE: 0, SKIN: 1, HORN: 2, EYE: 3, FUR: 4, METAL: 5, JOINT: 6, CLOTH: 7, HAIR: 8, DARK: 9, GLASS: 10, RUBBER: 11 } as const;
 
-export interface Part extends Capsule { k?: number; mat?: number }
+export interface Part extends Capsule { k?: number; mat?: number; /** group (for split evaluation) */ g?: number }
 
 export const BODY_COMMON_GLSL = /* glsl */ `
 struct Body { float d; float mat; vec2 uv; float r; vec2 t; float round; vec3 n; };
@@ -212,9 +212,9 @@ export function bodyGLSL(name: string, n: number) {
     float far = length(max(max(box.xy - p, p - box.zw), 0.0));
     if (far > 30.0) { B.d = far; return B; }
     float best = 1e5; bool decal = false;
-    for (int i = 0; i < ${n}; i++) {
-      if (i < first) continue;
-      if (i >= first + count) break;
+    for (int j = 0; j < ${n}; j++) {
+      if (j >= count) break;
+      int i = first + j;                  // walk only this body's range
       vec4 r = ${name}R[i];
       if (r.x <= 0.0) continue;
       vec4 b = ${name}A[i];
@@ -225,6 +225,8 @@ export function bodyGLSL(name: string, n: number) {
       float rad = mix(r.x, r.y, h);
       float dist = length(q) - rad;
       bool isDecal = r.z < 0.0;
+      // far parts only bound the distance (smooth union with a far part is a plain min)
+      if (dist > 36.0) { if (!isDecal) B.d = min(B.d, dist); continue; }
       if (!isDecal) {
         B.d = r.z > 0.0 ? smin(B.d, dist, r.z) : min(B.d, dist);
         // the surface normal of this part (a cylinder across the bone, a sphere for round parts), blended

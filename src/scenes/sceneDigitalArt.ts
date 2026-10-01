@@ -495,8 +495,11 @@ export default class SceneDigitalArt extends Scene {
     const s = this.subs[k]!;
     s.drawHead = drawHead;
     const ov = s.render({ t: st, lt: st - SPECIAL[k]!.tIn, p: 0, under: null, tin: 1, tout: 0 }, this.subRT[k]!);
-    this.down.u.src!.value = this.subRT[k]!.texture;
-    this.down.render(this.ctx.renderer, this.subMip[k]!);
+    // the mip-mapped thumbnail is only sampled while the panel is not the whole screen
+    if (!drawHead) {
+      this.down.u.src!.value = this.subRT[k]!.texture;
+      this.down.render(this.ctx.renderer, this.subMip[k]!);
+    }
     return ov ?? null;
   }
   private subPost: (PostOverrides | null)[] = [null, null, null];
