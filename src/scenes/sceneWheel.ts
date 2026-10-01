@@ -10,7 +10,7 @@ import { FSPass, canvasTexture, W, H } from '../engine/gl';
 import { LineBatch } from '../engine/lines';
 import { LineMotif, arc, rgba } from '../motifs/line';
 import { pose, NB, type P2, type PoseOpts } from '../motifs/figure';
-import { bonesGLSL, RELIEF_SHADE_GLSL, BoneArray, boxOf, type Capsule } from '../shaders/relief';
+import { BODY_COMMON_GLSL, bodyGLSL, PartArray, boxOf, type Part } from '../shaders/relief';
 import { makeCanvas, dabStroke, splatter, wobblyCircle, hexRGB, mixRGB, resample, type RGB } from '../art/paint';
 import { CUE } from '../timeline/cues';
 import { clamp, ease, lerp, smoothstep, TAU, catmull, hexLin, Rng, type V2 } from '../utils/math';
@@ -28,15 +28,15 @@ const INK = hexLin('#1C1A18');
 interface Stroke { pts: V2[]; w: number; col: RGB; who: 0 | 1; t0: number; t1: number }
 
 export default class SceneWheel extends PanelScene {
-  bones = new BoneArray(3 * NB);
+  bones = new PartArray(3 * NB);
   lines = new LineBatch(4000, { blend: 'normal' });
   motif = new LineMotif();
   strokes: Stroke[] = [];
   pass = new FSPass(/* glsl */ `
     uniform float t; uniform sampler2D paint, order; uniform vec4 fbox[3];
     uniform vec2 w1, w2; uniform float rot, discK, discA, holeK, spokeK, w2K, tNorm;
-    ${bonesGLSL('fg', 3 * NB)}
-    ${RELIEF_SHADE_GLSL}
+    ${BODY_COMMON_GLSL}
+    ${bodyGLSL('fg', 3 * NB)}
     const float R = ${R.toFixed(1)};
     float wallEdge(float y) { return 1210.0 + 50.0 * sin(y / 150.0) + 70.0 * fbm(vec2(y / 220.0, 2.0), 3) - (700.0 - y) * 0.12; }
     vec3 wheel(vec3 c, vec2 px, vec2 cen, float k, float ang0, float sweep) {
@@ -103,14 +103,15 @@ export default class SceneWheel extends PanelScene {
       }
       // the people
       vec3 Ld = normalize(vec3(-0.5, -0.6, 0.6));
-      vec3 fill = ink * 1.6;
-      vec3 lineC = C_PAPER * 0.55;
-      c = reliefShade(c, fgSD(px, ${NB * 2}, ${NB}, 6.0, fbox[2]), fill, lineC, 6.0, Ld, 1.0);
-      c = reliefShade(c, fgSD(px, ${NB}, ${NB}, 6.0, fbox[1]), fill, lineC, 6.0, Ld, 1.0);
+      vec3 Lc = vec3(1.0, 0.95, 0.86);
+      vec3 skinC = vec3(0.30, 0.17, 0.095), hairC = vec3(0.05, 0.035, 0.025);
+      vec3 lineC = vec3(0.0);
+      c = bodyShade(c, fgBody(px, ${NB * 2}, ${NB}, fbox[2]), Ld, Lc, hairC, skinC, 0.0, 0.0, lineC, 6.0, 1.0);
+      c = bodyShade(c, fgBody(px, ${NB}, ${NB}, fbox[1]), Ld, Lc, hairC, skinC * 0.92, 0.0, 0.0, lineC, 6.0, 1.0);
       // the wheels (and the cart's maker in front of them)
       c = wheel(c, px, w2, w2K, 0.0, 1.0);
       c = wheel(c, px, w1, discK, 0.0, discA);
-      c = reliefShade(c, fgSD(px, 0, ${NB}, 7.0, fbox[0]), fill, lineC, 6.0, Ld, 1.0);
+      c = bodyShade(c, fgBody(px, 0, ${NB}, fbox[0]), Ld, Lc, hairC, skinC, 0.0, 0.0, lineC, 6.0, 1.0);
       fragColor = vec4(c, 1.0);
     }`, {
     t: { value: 0 }, paint: { value: null }, order: { value: null }, w1: { value: new THREE.Vector2() }, w2: { value: new THREE.Vector2() },
@@ -206,10 +207,10 @@ export default class SceneWheel extends PanelScene {
   }
 
   /** The people: the maker (kneels and strikes, then stands and pushes), two painters at the rock face. */
-  people(t: number): Capsule[][] {
-    const out: Capsule[][] = [];
-    const place = (H_: number, root: P2, ps: ReturnType<typeof pose>): Capsule[] => ps.bones.map((b) => ({
-      a: [root[0] + b.a[0] * H_, root[1] - b.a[1] * H_], b: [root[0] + b.b[0] * H_, root[1] - b.b[1] * H_], ra: b.ra * H_, rb: b.rb * H_,
+  people(t: number): Part[][] {
+    const out: Part[][] = [];
+    const place = (H_: number, root: P2, ps: ReturnType<typeof pose>): Part[] => ps.bones.map((b) => ({
+      a: [root[0] + b.a[0] * H_, root[1] - b.a[1] * H_], b: [root[0] + b.b[0] * H_, root[1] - b.b[1] * H_], ra: b.ra * H_, rb: b.rb * H_, k: b.k * H_, mat: b.mat,
     }));
     // the maker
     const stand = ease.inOutCubic(clamp((t - (AXLE + 0.55)) / 0.6));

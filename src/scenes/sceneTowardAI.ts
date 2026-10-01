@@ -92,7 +92,7 @@ export default class SceneTowardAI extends PanelScene {
       // the robots: the same relief as every body in the film, in blueprint tones
       vec3 Ld = normalize(vec3(-0.5, -0.65, 0.6));
       Body B = rbBody(px, 0, ${NBONES}, rbox);
-      c = bodyShade(c, B, Ld, vec3(1.0, 0.97, 0.92) * 1.1, vec3(0.15, 0.148, 0.145), vec3(0.2), 0.0, C_BONE * 0.85, 6.0, 1.0);
+      c = bodyShade(c, B, Ld, vec3(1.0, 0.97, 0.92) * 1.1, vec3(0.15, 0.148, 0.145), vec3(0.2), 0.0, 1.0, C_BONE * 0.85, 6.0, 1.0);
       fragColor = vec4(c, 1.0);
     }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, rbox: { value: new THREE.Vector4() }, ...this.bones.uniforms('rb') });
 

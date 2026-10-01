@@ -223,8 +223,8 @@ export default class SceneDinoEra extends PanelScene {
       vec3 lineC = mix(C_BONE, C_WARMBONE, 0.5) * 0.55;
       Body b1 = crBody(px, 0, ${NS}, box0);
       Body b2 = crBody(px, ${NS}, ${NR}, box1);
-      c = bodyShade(c, b1, L, Lc, vec3(0.105, 0.088, 0.06), vec3(0.24, 0.2, 0.14), 0.15, lineC, 7.5, 1.0);
-      c = bodyShade(c, b2, L, Lc, vec3(0.072, 0.05, 0.034), vec3(0.22, 0.16, 0.1), 1.0, lineC, 7.5, 1.0);
+      c = bodyShade(c, b1, L, Lc, vec3(0.105, 0.088, 0.06), vec3(0.24, 0.2, 0.14), 0.15, 1.0, lineC, 7.5, 1.0);
+      c = bodyShade(c, b2, L, Lc, vec3(0.072, 0.05, 0.034), vec3(0.22, 0.16, 0.1), 1.0, 1.0, lineC, 7.5, 1.0);
       // ---- the shockwave: the film's hairline ring, now a pressure front ----
       if (ti > 0.0) {
         float R = 1700.0 * (1.0 - pow(2.0, -10.0 * ti / 2.6));

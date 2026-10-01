@@ -73,11 +73,11 @@ export default class SceneEvolution extends Scene {
     const s = this.s, k = evoPush(t);
     for (let i = 0; i < NB; i++) {
       const b = ps.bones[i];
-      const o4 = (f * NB + i) * 4, o2 = (f * NB + i) * 2;
-      if (!b) { s.radii[o2] = 0; s.radii[o2 + 1] = 0; continue; }
+      const o4 = (f * NB + i) * 4;
+      if (!b) { s.radii[o4] = 0; s.radii[o4 + 1] = 0; continue; }
       const a = this.toScreen(t, b.a, rootX), c = this.toScreen(t, b.b, rootX);
       s.bones[o4] = a[0]; s.bones[o4 + 1] = a[1]; s.bones[o4 + 2] = c[0]; s.bones[o4 + 3] = c[1];
-      s.radii[o2] = b.ra * H_PX * k; s.radii[o2 + 1] = b.rb * H_PX * k;
+      s.radii[o4] = b.ra * H_PX * k; s.radii[o4 + 1] = b.rb * H_PX * k; s.radii[o4 + 2] = b.k * H_PX * k; s.radii[o4 + 3] = b.mat;
     }
     const p0 = this.toScreen(t, [ps.box[0], ps.box[3]], rootX), p1 = this.toScreen(t, [ps.box[2], ps.box[1]], rootX);
     s.boxes.set([p0[0], p0[1], p1[0], p1[1]], f * 4);
@@ -97,6 +97,7 @@ export default class SceneEvolution extends Scene {
     s.figMix = form;
     s.figGrow = (1 - form) * 0.07 * H_PX;
     s.figSmooth = 0.022 * H_PX * push;
+    s.furK = 1 - smoothstep(0.7, 1.9, morphAt(t));
     s.echoR = lerp(42, 95, smoothstep(1, PUSH_END, push));
     s.recede = lerp(0.62, 0.3, smoothstep(CUE.push, CUE.human, t));
     this.writeFigure(0, this.poseAt(t), t, this.rootX(t));

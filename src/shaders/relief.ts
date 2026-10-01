@@ -119,11 +119,11 @@ vec3 vor3(vec2 p) {
   return vec3(sqrt(d1), sqrt(d2), id);
 }
 /**
- * Shade a detailed body over c. skinA: main colour (scales, fur), skinB: second colour (bare skin, belly),
+ * Shade a detailed body over c. skinA: main colour (scales, fur), skinB: second colour (bare skin, belly), fur: 0..1 (fur → bare skin),
  * L: light direction (screen, y down; z toward the viewer), Lc: light colour, stripes: 0..1 pattern,
  * line: hairline colour of the contour rings and outline (the film's relief language, kept faint).
  */
-vec3 bodyShade(vec3 c, Body B, vec3 L, vec3 Lc, vec3 skinA, vec3 skinB, float stripes, vec3 line, float ringStep, float alpha) {
+vec3 bodyShade(vec3 c, Body B, vec3 L, vec3 Lc, vec3 skinA, vec3 skinB, float stripes, float fur, vec3 line, float ringStep, float alpha) {
   float d = B.d;
   float hh = sqrt(max(0.0, -d) * 34.0);
   vec2 hg = vec2(dFdx(hh), dFdy(hh));         // derivatives first: the returns below are divergent
@@ -164,9 +164,10 @@ vec3 bodyShade(vec3 c, Body B, vec3 L, vec3 Lc, vec3 skinA, vec3 skinB, float st
     sp = 0.3; dif = 1.0;
   } else if (m < 4.5) {                                     // fur
     float s1 = vnoise(vec2(uv.x / 1.4, uv.y / 5.0) + 3.0), s2 = vnoise(vec2(uv.x / 0.7, uv.y / 2.5) + 9.0);
-    col = skinA * mix(1.0, 0.55 + 0.75 * (s1 * 0.6 + s2 * 0.4), aa);
-    col = mix(col, skinA * 1.35, belly * 0.35);
-    sp = 0.05;
+    vec3 furC = skinA * mix(1.0, 0.55 + 0.75 * (s1 * 0.6 + s2 * 0.4), aa);
+    furC = mix(furC, skinA * 1.35, belly * 0.35);
+    col = mix(skinB * (0.92 + 0.12 * vnoise(uv / 3.0)), furC, fur);   // fur thins to bare skin
+    sp = mix(0.18, 0.05, fur);
   } else if (m < 5.5) {                                     // metal: panels, rivets, brushed grain
     vec3 steel = skinA;
     float panel = 1.0 - (1.0 - smoothstep(0.0, 1.2, abs(fract(uv.x / 38.0 + 0.5) - 0.5) * 38.0)) * aa;

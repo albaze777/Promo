@@ -5,8 +5,12 @@
 import { clamp, lerp, ease, smoothstep } from '../utils/math';
 
 export type P2 = [number, number];
-/** A capsule from a to b with radii ra, rb (figure units: y up, ground at 0, human height ≈ 1). */
-export interface Bone { a: P2; b: P2; ra: number; rb: number }
+/** A capsule from a to b with radii ra, rb (figure units: y up, ground at 0, human height ≈ 1), with the
+ * smoothing (k, figure units; negative = decal) and material of shaders/relief.ts MAT. */
+export interface Bone { a: P2; b: P2; ra: number; rb: number; k: number; mat: number }
+
+// materials (shaders/relief.ts MAT)
+const SKIN = 1, EYE = 3, FUR = 4, CLOTH = 7, HAIR = 8;
 
 interface Params {
   thigh: number; shin: number; foot: number; armU: number; armF: number; hand: number;
@@ -132,26 +136,67 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
   for (const a of arms) low = Math.min(low, a.tip[1] - 0.015 + (1 - P.quad) * 2);
   const up = -low;
   const U = (p: P2): P2 => [p[0], p[1] + up];
-  const push = (a: P2, b: P2, ra: number, rb: number) => bones.push({ a: U(a), b: U([b[0] + 1e-4, b[1]]), ra, rb });
-  // far limbs first (the shader treats all bones alike; order only matters for readability)
+  const push = (a: P2, b: P2, ra: number, rb: number, mat = FUR, k = 0.012) => { if (ra > 1e-5) bones.push({ a: U(a), b: U([b[0] + 1e-4, b[1]]), ra, rb, k, mat }); };
+  const perp = (d: P2): P2 => [-d[1], d[0]];
+  const unit = (a: P2, b: P2): P2 => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L]; };
+  const q = P.quad;
+  const human = smoothstep(1.35, 1.9, m);           // hair, cloth, a nose: what the upright form gains
+  // limbs, far side first: thigh, calf muscle, shin, heel, foot, toes; deltoid, upper arm, forearm, palm, fingers, thumb
   const limbs = (i: number, s: number) => {
     const l = legs[i]!, a = arms[i]!;
-    const q = P.quad;
-    push(l.hip, l.knee, (0.05 + 0.012 * q) * s, (0.04 + 0.006 * q) * s);
-    push(l.knee, l.ankle, (0.037 + 0.006 * q) * s, 0.026 * s);
-    push(l.ankle, l.toe, 0.024 * s, 0.017 * s);
-    push(a.sh, a.el, (0.036 + 0.02 * q) * s, (0.029 + 0.01 * q) * s);
-    push(a.el, a.wr, (0.029 + 0.012 * q) * s, (0.022 + 0.006 * q) * s);
-    push(a.wr, a.tip, 0.021 * s, (0.012 + 0.005 * P.quad) * s);
+    const dS = unit(l.knee, l.ankle), back = perp(dS);
+    push(l.hip, l.knee, (0.052 + 0.012 * q) * s, (0.038 + 0.006 * q) * s);
+    push(add(l.knee, dS, 0.035), add(add(l.knee, dS, 0.12), back, 0.012), (0.036 + 0.004 * q) * s, 0.028 * s, FUR, 0.01);
+    push(l.knee, l.ankle, (0.034 + 0.006 * q) * s, 0.022 * s);
+    const dF = unit(l.ankle, l.toe);
+    push(add(l.ankle, dF, -0.012), l.toe, 0.024 * s, 0.017 * s, SKIN, 0.008);
+    push(l.toe, add(l.toe, dF, 0.018), 0.013 * s, 0.01 * s, SKIN, 0.004);
+    push(a.sh, add(a.sh, unit(a.sh, a.el), 0.01), (0.043 + 0.012 * q) * s, (0.04 + 0.01 * q) * s);
+    push(a.sh, a.el, (0.034 + 0.02 * q) * s, (0.027 + 0.01 * q) * s);
+    push(a.el, a.wr, (0.028 + 0.012 * q) * s, (0.02 + 0.006 * q) * s);
+    const dH = unit(a.wr, a.tip), side = perp(dH);
+    const palmEnd = add(a.wr, dH, 0.042 + 0.01 * q);
+    push(a.wr, palmEnd, (0.02 + 0.004 * q) * s, (0.019 + 0.005 * q) * s, SKIN, 0.006);
+    if (i === 0 && reach > 0.3) {
+      // the reaching hand: the index finger extended, the others curled into the palm
+      push(palmEnd, a.tip, 0.009 * s, 0.0065 * s, SKIN, 0.003);
+      push(palmEnd, add(add(palmEnd, dH, 0.016), side, -0.014), 0.012 * s, 0.01 * s, SKIN, 0.004);
+    } else {
+      push(palmEnd, add(a.tip, side, 0.002), (0.013 + 0.004 * q) * s, (0.009 + 0.004 * q) * s, SKIN, 0.004);
+      push(palmEnd, add(add(palmEnd, dH, 0.02 + 0.012 * q), side, -0.012), (0.012 + 0.003 * q) * s, 0.009 * s, SKIN, 0.004);
+    }
+    push(add(a.wr, side, 0.012), add(add(a.wr, side, 0.024), dH, 0.03), 0.009 * s, 0.007 * s, SKIN, 0.004);
   };
   limbs(1, 0.92);
-  push(pelvis, chest, P.rPelvis, P.rChest);
-  push(chest, neckTop, 0.04, 0.034);
-  push(head, head, P.headR, P.headR);
-  // muzzle / jaw (ape), brow ridge
+  // torso: pelvis, belly, rib cage, buttock; the shoulders' bulk
+  const dT = unit(pelvis, chest), bk = perp(dT);
+  push(pelvis, add(pelvis, dT, 0.001), P.rPelvis, P.rPelvis, FUR, 0.03);
+  push(pelvis, add(pelvis, dT, P.torso * 0.5), P.rPelvis * 0.98, (P.rPelvis + P.rChest) * 0.5, FUR, 0.03);
+  push(add(pelvis, dT, P.torso * 0.45), chest, (P.rPelvis + P.rChest) * 0.5, P.rChest, FUR, 0.03);
+  push(add(add(pelvis, bk, -0.035), dT, -0.01), add(add(pelvis, bk, -0.035), dT, -0.009), 0.055, 0.055, FUR, 0.02);
+  // loincloth on the upright form
+  if (human > 0.01) push(add(pelvis, dT, 0.01), add(add(pelvis, dT, -0.09), bk, 0.012), P.rPelvis * 1.05 * human, P.rPelvis * 0.8 * human, CLOTH, 0.006);
+  // neck and head: cranium, face and muzzle, jaw, brow, nose, ear, eye, hair
+  push(chest, neckTop, 0.04, 0.034, FUR, 0.015);
+  const dN: P2 = [Math.sin(nAng), Math.cos(nAng)];
   const fwd: P2 = [Math.sin(nAng + 0.9), Math.cos(nAng + 0.9)];
-  push(head, add(head, fwd, P.headR * (0.4 + 0.6 * P.muzzle)), P.headR * (0.55 + 0.25 * P.muzzle), P.headR * (0.32 + 0.22 * P.muzzle));
-  push(add(head, [Math.sin(nAng + 0.35), Math.cos(nAng + 0.35)], P.headR * 0.55), add(head, [Math.sin(nAng + 0.35), Math.cos(nAng + 0.35)], P.headR * (0.6 + 0.35 * P.brow)), P.headR * 0.35, P.headR * 0.3 * (0.4 + 0.6 * P.brow));
+  const down: P2 = [Math.sin(nAng + 2.2), Math.cos(nAng + 2.2)];
+  push(head, add(head, dN, 0.001), P.headR, P.headR, FUR, 0.01);
+  const face0 = add(head, fwd, P.headR * 0.25);
+  const faceEnd = add(head, fwd, P.headR * (0.55 + 0.6 * P.muzzle));
+  push(face0, faceEnd, P.headR * (0.62 + 0.2 * P.muzzle), P.headR * (0.34 + 0.22 * P.muzzle), SKIN, 0.008);
+  push(add(face0, down, P.headR * 0.35), add(faceEnd, down, P.headR * 0.28), P.headR * (0.38 + 0.12 * P.muzzle), P.headR * (0.26 + 0.1 * P.muzzle), SKIN, 0.008);
+  const browD: P2 = [Math.sin(nAng + 0.35), Math.cos(nAng + 0.35)];
+  push(add(head, browD, P.headR * 0.55), add(head, browD, P.headR * (0.6 + 0.35 * P.brow)), P.headR * 0.35, P.headR * 0.3 * (0.4 + 0.6 * P.brow), SKIN, 0.006);
+  const noseP = add(add(head, fwd, P.headR * (0.95 + 0.25 * P.muzzle)), down, P.headR * 0.05);
+  push(noseP, add(noseP, down, P.headR * 0.22), P.headR * (0.1 + 0.12 * human), P.headR * (0.14 + 0.08 * human), SKIN, 0.004);
+  const earP = add(head, [-fwd[0], -fwd[1]], P.headR * 0.15);
+  push(earP, add(earP, down, P.headR * 0.12), P.headR * 0.2, P.headR * 0.16, SKIN, 0.003);
+  const eyeP = add(add(head, fwd, P.headR * 0.72), browD, P.headR * 0.12);
+  push(eyeP, add(eyeP, fwd, 1e-4), P.headR * 0.12, P.headR * 0.12, EYE, -1);
+  // hair: a cap over the crown and the back of the head, clear of the face
+  const crown = add(add(head, dN, P.headR * 0.32), fwd, -P.headR * 0.38), nape = add(add(head, dN, -P.headR * 0.05), fwd, -P.headR * 0.62);
+  if (human > 0.01) push(crown, nape, P.headR * 0.72 * human, P.headR * 0.55 * human, HAIR, 0.008);
   limbs(0, 1);
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const b of bones) {
@@ -164,6 +209,6 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
 
 /** Reach direction of the near arm (from straight down, forward positive): 30° below horizontal. */
 export const REACH_ANG = Math.PI / 2 - Math.PI / 6;
-export const NB = 18;
+export const NB = 40;
 
 export const _ = { smoothstep };

@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { FSPass } from '../engine/gl';
 import { NB } from '../motifs/figure';
+import { BODY_COMMON_GLSL, bodyGLSL } from './relief';
 
 export const TERRAIN_GLSL = /* glsl */ `
 float terrain(vec3 p, float oct) {
@@ -84,7 +85,9 @@ export interface TopoState {
   echoR: number;
   ghostA: [number, number];
   bones: Float32Array;   // 3 × NB × (ax, ay, bx, by) screen px
-  radii: Float32Array;   // 3 × NB × (ra, rb) px (0 = unused)
+  radii: Float32Array;   // 3 × NB × (ra, rb, smoothing, material) px (ra 0 = unused)
+  /** 1 = the ape's fur, 0 = bare skin */
+  furK: number;
   boxes: Float32Array;   // 3 × (x0, y0, x1, y1)
   recede: number;
   stone: number;
@@ -99,7 +102,7 @@ export function defaultTopo(): TopoState {
     life: 0, ripple: 0, rippleAmp: 0, redCoast: 0, reveal: 1, warm: 0, handMix: 0, handPos: [0, 0], handRot: 0, handScale: 1,
     stone: 0, drainCenter: [0, 0], drainR: 1e5, atmo: 1, handFlip: 1,
     figMix: 0, handMorph: 1, figGrow: 0, figSmooth: 6, echoR: 95, ghostA: [0, 0],
-    bones: new Float32Array(3 * NB * 4), radii: new Float32Array(3 * NB * 2), boxes: new Float32Array(12).fill(-1e5), recede: 0.3,
+    bones: new Float32Array(3 * NB * 4), radii: new Float32Array(3 * NB * 4), furK: 1, boxes: new Float32Array(12).fill(-1e5), recede: 0.3,
   };
 }
 
@@ -109,22 +112,12 @@ export class TopoPass {
     uniform vec3 land; uniform float life, ripple, rippleAmp, redCoast, reveal, warm;
     uniform float handMix; uniform vec2 handPos; uniform float handRot, handScale; uniform float stone;
     uniform vec2 drainCenter; uniform float drainR; uniform float atmo; uniform float handFlip;
-    uniform vec4 fBone[${3 * NB}]; uniform vec2 fRad[${3 * NB}]; uniform vec4 fBox[3];
-    uniform float figMix, handMorph, figGrow, figSmooth, echoR, recede; uniform vec2 ghostA;
+    uniform vec4 fBox[3];
+    uniform float figMix, handMorph, figGrow, figSmooth, echoR, recede, furK; uniform vec2 ghostA;
     ${TERRAIN_GLSL}
-    float sdFig(vec2 p, int f) {
-      vec4 bx = fBox[f];
-      float far = length(max(max(bx.xy - p, p - bx.zw), 0.0));
-      if (far > echoR + 40.0) return far;
-      float d = 1e5;
-      for (int i = 0; i < ${NB}; i++) {
-        vec2 r = fRad[f * ${NB} + i];
-        if (r.x <= 0.0) continue;
-        vec4 b = fBone[f * ${NB} + i];
-        d = smin(d, sdCapsule(p, b.xy, b.zw, r.x, r.y), figSmooth);
-      }
-      return d;
-    }
+    ${BODY_COMMON_GLSL}
+    ${bodyGLSL('fg', 3 * NB)}
+    float sdFig(vec2 p, int f) { return fgBody(p, f * ${NB}, ${NB}, fBox[f]).d; }
     ${HAND_GLSL}
     ${STONE_GLSL}
     float iso(float h, float stepU, float w) {
@@ -162,10 +155,11 @@ export class TopoPass {
       // the body: the walking figure (03a), the hand (03b), or the morph between them
       float bodyK = max(handMix, figMix);
       float hd = 1e5;
+      Body fig; fig.d = 1e5; fig.mat = 1.0; fig.uv = vec2(0.0); fig.r = 1.0; fig.t = vec2(1.0, 0.0); fig.round = 0.0; fig.n = vec3(0.0, 0.0, 1.0);
       if (bodyK > 0.0) {
         float dH = 1e5, dF = 1e5;
         if (handMorph > 0.0) { vec2 hp = rot2(-handRot) * (px - handPos) / handScale; hp.y *= handFlip; dH = sdHand(hp) * handScale; }
-        if (handMorph < 1.0) dF = sdFig(px, 0) + figGrow;
+        if (handMorph < 1.0) { fig = fgBody(px, 0, ${NB}, fBox[0]); dF = fig.d + figGrow; }
         hd = handMorph <= 0.0 ? dF : handMorph >= 1.0 ? dH : mix(dF, dH, handMorph);
       }
       float stepU = 0.05 / pow(2.0, floor(lvl));
@@ -210,6 +204,7 @@ export class TopoPass {
       c += C_LINE * rip * 0.6 + C_BONE * rip * 0.15;
       // the hand: its own contour system — a dome over its silhouette, sculpted by concentric lines
       if (bodyK > 0.0) {
+        vec3 c0 = c;
         float inside = smoothstep(1.5, -1.5, hd);
         float hh = sqrt(max(0.0, -hd) * 34.0);
         vec2 hg = vec2(dFdx(hh), dFdy(hh));
@@ -222,6 +217,14 @@ export class TopoPass {
         float echo = iso(hd, 15.0 * echoR / 95.0, 0.8) * smoothstep(echoR, 4.0, hd) * step(0.0, hd);
         vec3 lc = mix(C_BONE, C_WARMBONE, 0.6);
         c += lc * bodyK * (rings * (0.16 + 0.32 * hs) + outline * 0.75 + echo * 0.16);
+        // 03a: the walking figure in full detail — fur that thins to skin, a face, hands and feet, hair, cloth
+        if (handMorph < 1.0) {
+          Body fb = fig; fb.d = hd;
+          vec3 cf = bodyShade(c0, fb, normalize(vec3(-0.55, -0.6, 0.6)), vec3(1.0, 0.86, 0.7) * 0.85,
+                              vec3(0.075, 0.05, 0.032), vec3(0.2, 0.12, 0.075), 0.0, furK, lc * 0.9, 6.5, bodyK);
+          cf += lc * bodyK * echo * 0.16;
+          c = mix(cf, c, handMorph);
+        }
       }
       // ghosts: the earlier forms of the figure, left behind as fading contour echoes
       for (int g = 0; g < 2; g++) {
@@ -248,8 +251,9 @@ export class TopoPass {
     redCoast: { value: 0 }, reveal: { value: 1 }, warm: { value: 0 }, handMix: { value: 0 }, handPos: { value: new THREE.Vector2() },
     handRot: { value: 0 }, handScale: { value: 1 }, stone: { value: 0 }, drainCenter: { value: new THREE.Vector2() }, drainR: { value: 1e5 },
     atmo: { value: 1 }, handFlip: { value: 1 },
-    fBone: { value: Array.from({ length: 3 * NB }, () => new THREE.Vector4()) },
-    fRad: { value: Array.from({ length: 3 * NB }, () => new THREE.Vector2()) },
+    fgA: { value: Array.from({ length: 3 * NB }, () => new THREE.Vector4()) },
+    fgR: { value: Array.from({ length: 3 * NB }, () => new THREE.Vector4()) },
+    furK: { value: 1 },
     fBox: { value: Array.from({ length: 3 }, () => new THREE.Vector4(-1e5, -1e5, -1e5, -1e5)) },
     figMix: { value: 0 }, handMorph: { value: 1 }, figGrow: { value: 0 }, figSmooth: { value: 6 }, echoR: { value: 95 },
     recede: { value: 0.3 }, ghostA: { value: new THREE.Vector2() },
@@ -269,10 +273,10 @@ export class TopoPass {
     (u.drainCenter!.value as THREE.Vector2).set(s.drainCenter[0], s.drainCenter[1]);
     u.drainR!.value = s.drainR; u.atmo!.value = s.atmo; u.handFlip!.value = s.handFlip;
     u.figMix!.value = s.figMix; u.handMorph!.value = s.handMorph; u.figGrow!.value = s.figGrow; u.figSmooth!.value = s.figSmooth;
-    u.echoR!.value = s.echoR; u.recede!.value = s.recede; (u.ghostA!.value as THREE.Vector2).set(s.ghostA[0], s.ghostA[1]);
+    u.echoR!.value = s.echoR; u.recede!.value = s.recede; u.furK!.value = s.furK; (u.ghostA!.value as THREE.Vector2).set(s.ghostA[0], s.ghostA[1]);
     if (s.figMix > 0 || s.ghostA[0] > 0 || s.ghostA[1] > 0) {
-      const fb = u.fBone!.value as THREE.Vector4[], fr = u.fRad!.value as THREE.Vector2[], bx = u.fBox!.value as THREE.Vector4[];
-      for (let i = 0; i < 3 * NB; i++) { fb[i]!.fromArray(s.bones, i * 4); fr[i]!.fromArray(s.radii, i * 2); }
+      const fb = u.fgA!.value as THREE.Vector4[], fr = u.fgR!.value as THREE.Vector4[], bx = u.fBox!.value as THREE.Vector4[];
+      for (let i = 0; i < 3 * NB; i++) { fb[i]!.fromArray(s.bones, i * 4); fr[i]!.fromArray(s.radii, i * 4); }
       for (let i = 0; i < 3; i++) bx[i]!.fromArray(s.boxes, i * 4);
     }
     this.pass.render(r, out);
