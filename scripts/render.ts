@@ -6,12 +6,13 @@
 //   bun scripts/render.ts scene  <id> [video options]           render one scene's window
 //   bun scripts/render.ts video  [--from 0] [--to 19.5] [--fps 60] [--samples 8] [--shutter 0.5]
 //                                [--crf 16] [--preset slow] [--jobs 2] [--noaudio] [--out out/oredlab-promo.mp4]
+//   bun scripts/render.ts segments [--chunk 5] [--jobs 2] [--dir out/segments_x] [video options]   resumable chunked render
 //   --scale 2 (any mode): true 3840×2160.   --angle <backend>: ANGLE backend (default swiftshader on Linux,
 //   metal on macOS; use "default" for a real GPU).   --url: use a running dev server.
 //
 // Motion blur: --samples N averages N sub-frames over shutter × (1/fps) per frame (temporal supersampling).
 import { chromium, type Browser, type Page } from 'playwright-core';
-import { mkdirSync, existsSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, rmSync, writeFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -22,7 +23,7 @@ const flag = (k: string) => argv.includes(`--${k}`);
 const ROOT = path.resolve(import.meta.dir, '..');
 const SCALE = Math.max(1, +opt('scale', '1')!);
 const OW = Math.round(1920 * SCALE), OH = Math.round(1080 * SCALE);
-const SAMPLES = Math.max(1, Math.round(+opt('samples', mode === 'video' || mode === 'scene' ? '8' : '1')!));
+const SAMPLES = Math.max(1, Math.round(+opt('samples', mode === 'video' || mode === 'scene' || mode === 'segments' ? '8' : '1')!));
 const SHUTTER = +opt('shutter', '0.5')!;
 const FPS = +opt('fps', '60')!;
 
@@ -110,9 +111,8 @@ async function sheet(page: Page, times: number[], cols: number, out: string) {
   console.log(out);
 }
 
-/** Encode frames [from,to) to a video-only H.264 file. */
-async function encodeSegment(url: string, from: number, to: number, out: string, label: string, only?: string) {
-  const { browser, page, logs } = await openPage(url, only);
+/** Stream frames [from,to) from an open page into a video-only H.264 file. */
+async function streamTo(page: Page, browser: Browser, from: number, to: number, out: string, label: string) {
   const crf = opt('crf', '16')!;
   const ff = Bun.spawn(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${OW}x${OH}`, '-r', String(FPS), '-i', 'pipe:0',
     '-vf', 'vflip,scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709',
@@ -141,12 +141,13 @@ async function encodeSegment(url: string, from: number, to: number, out: string,
   });
   // a crashed renderer or a stalled pipeline must fail loudly (and be retried), never hang
   let lastFrames = -1, lastChange = performance.now();
+  let iv: ReturnType<typeof setInterval> | undefined;
   const crashed = new Promise<never>((_, rej) => {
     page.on('crash', () => rej(new Error(`[${label}] page crashed`)));
     browser.on('disconnected', () => rej(new Error(`[${label}] browser disconnected`)));
   });
   const watchdog = new Promise<never>((_, rej) => {
-    const iv = setInterval(() => {
+    iv = setInterval(() => {
       if (frames !== lastFrames) { lastFrames = frames; lastChange = performance.now(); }
       else if (performance.now() - lastChange > 180000) { clearInterval(iv); rej(new Error(`[${label}] no frame for 180 s`)); }
       if (frames >= total) clearInterval(iv);
@@ -162,12 +163,91 @@ async function encodeSegment(url: string, from: number, to: number, out: string,
       crashed, watchdog,
     ]);
   } finally {
+    clearInterval(iv);
     ff.stdin.end();
     await ff.exited;
     server.stop();
+  }
+  if (frames < total) throw new Error(`[${label}] only ${frames}/${total} frames`);
+}
+
+/** Encode frames [from,to) to a video-only H.264 file (own browser). */
+async function encodeSegment(url: string, from: number, to: number, out: string, label: string, only?: string) {
+  const { browser, page, logs } = await openPage(url, only);
+  try { await streamTo(page, browser, from, to, out, label); }
+  finally {
     await browser.close().catch(() => {});
     if (logs.length) console.error(`[${label}] BROWSER LOG:\n` + logs.slice(0, 20).join('\n'));
   }
+}
+
+/** Frame count of a video file (decodes it), or -1. */
+function countFrames(f: string) {
+  if (!existsSync(f)) return -1;
+  const p = Bun.spawnSync(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', f]);
+  const n = parseInt(p.stdout.toString().trim(), 10);
+  return Number.isFinite(n) ? n : -1;
+}
+
+/**
+ * Resumable render: fixed chunks of --chunk seconds → <dir>/NNN.mp4 (same x264 settings). Chunks that exist
+ * with the right frame count are skipped; --jobs workers each keep a browser and take the next pending
+ * chunk (a dead browser costs one chunk, which is retried). Then a lossless concat and the audio mux.
+ */
+async function segments(url: string, from: number, to: number, out: string) {
+  const chunk = +opt('chunk', '5')!;
+  const dir = path.resolve(opt('dir', path.join(path.dirname(out), `segments_${path.basename(out, '.mp4')}`))!);
+  mkdirSync(dir, { recursive: true });
+  const n0 = Math.round(from * FPS), n1 = Math.round(to * FPS), per = Math.round(chunk * FPS);
+  const all: { i: number; a: number; b: number; f: string; n: number }[] = [];
+  for (let a = n0, i = 0; a < n1; a += per, i++) {
+    const b = Math.min(n1, a + per);
+    all.push({ i, a, b, f: path.join(dir, `${String(i).padStart(3, '0')}.mp4`), n: b - a });
+  }
+  const pending = all.filter((c) => countFrames(c.f) !== c.n);
+  console.log(`[segments] ${all.length} chunks of ${chunk}s in ${dir}; ${all.length - pending.length} done, ${pending.length} to render`);
+  const t0 = performance.now();
+  const jobs = Math.max(1, Math.round(+opt('jobs', '2')!));
+  let done = all.length - pending.length;
+  // closing a wedged browser can hang: give it 15 s, then let it go (the process dies with the script)
+  const close = (b?: Browser) => (b ? Promise.race([b.close().catch(() => {}), Bun.sleep(15000)]) : Promise.resolve());
+  await Promise.all(Array.from({ length: Math.min(jobs, pending.length) }, async (_, w) => {
+    await Bun.sleep(w * 25000); // stagger start-up: two SwiftShader browsers booting at once can wedge one
+    let ctx: Awaited<ReturnType<typeof openPage>> | null = null;
+    while (pending.length) {
+      const c = pending.shift()!;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          if (!ctx || !ctx.browser.isConnected()) ctx = await openPage(url);
+          const tmp = c.f.replace(/\.mp4$/, '.part.mp4');
+          await streamTo(ctx.page, ctx.browser, c.a / FPS, c.b / FPS, tmp, `w${w} chunk ${c.i}`);
+          const got = countFrames(tmp);
+          if (got !== c.n) throw new Error(`chunk ${c.i}: ${got}/${c.n} frames after encode`);
+          renameSync(tmp, c.f);
+          done++;
+          console.log(`[segments] chunk ${c.i} ok (${c.n} frames) — ${done}/${all.length} chunks, ${((performance.now() - t0) / 60000).toFixed(1)} min`);
+          break;
+        } catch (e) {
+          console.error(`${(e as Error).message} — attempt ${attempt}`);
+          await close(ctx?.browser);
+          ctx = null;
+          if (attempt >= 3) throw e;
+        }
+      }
+    }
+    await close(ctx?.browser);
+  }));
+  const list = path.join(dir, 'list.txt');
+  writeFileSync(list, all.map((c) => `file '${c.f}'`).join('\n'));
+  const audio = path.join(ROOT, 'public/audio/promo.wav');
+  const args = ['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', list];
+  const withAudio = !flag('noaudio') && existsSync(audio);
+  if (withAudio) args.push('-ss', String(from), '-t', String(to - from), '-i', audio);
+  args.push('-c:v', 'copy');
+  if (withAudio) args.push('-c:a', 'aac', '-b:a', '256k', '-ar', '48000');
+  args.push('-movflags', '+faststart', out);
+  await Bun.spawn(args, { stdout: 'inherit', stderr: 'inherit' }).exited;
+  console.log(`wrote ${out}  (${n1 - n0} frames, ${SAMPLES} sub-frames each, ${countFrames(out)} frames in file)`);
 }
 
 async function video(url: string, from: number, to: number, out: string, only?: string) {
@@ -206,7 +286,15 @@ async function video(url: string, from: number, to: number, out: string, only?: 
 
 const { url, stop } = await ensureServer();
 try {
-  if (mode === 'video' || mode === 'scene') {
+  if (mode === 'segments') {
+    let to = opt('to') ? +opt('to')! : NaN;
+    if (Number.isNaN(to)) {
+      const { browser, page } = await openPage(url, 'none');
+      to = await page.evaluate(() => (window as any).__promo.duration) as number;
+      await browser.close();
+    }
+    await segments(url, +opt('from', '0')!, to, path.resolve(opt('out', path.join(ROOT, 'out/oredlab-promo.mp4'))!));
+  } else if (mode === 'video' || mode === 'scene') {
     let from = +opt('from', '0')!, to = opt('to') ? +opt('to')! : NaN, only = opt('only');
     if (mode === 'scene') {
       const id = argv[1]!;

@@ -4,7 +4,9 @@ The film is a web app (TypeScript + three.js, run with bun + Vite). It renders a
 
 ## Two clocks
 
-Scenes, cues (`src/timeline/cues.ts`) and the timeline are authored on the **story clock** (0–20.8 s, a 120 BPM grid). `Engine.render(T)` takes **output time** (0–26 s, what the viewer sees) and converts it with `storyTime(T) = T / TIME_SCALE` before compositing. Scenes only ever see story time. The export API, the preview UI and `scripts/render.ts` all speak output seconds, and `scripts/audio.ts` lays the sound out on the output clock (cues × `TIME_SCALE`). To re-time the film, change `TIME_SCALE` and `OUTPUT_DURATION`.
+Scenes, cues (`src/timeline/cues.ts`) and the timeline are authored on the **story clock** (0–76.5 s, a 120 BPM grid). `Engine.render(T)` takes **output time** (0–95.625 s, what the viewer sees) and converts it with `storyTime(T) = T / TIME_SCALE` before compositing. Scenes only ever see story time. The export API, the preview UI and `scripts/render.ts` all speak output seconds, and `scripts/audio.ts` lays the sound out on the output clock (cues × `TIME_SCALE`).
+
+The cue sheet is a **sequence of segments** (`SEQUENCE` in `cues.ts`): each segment has a story duration and its cues as offsets from its start, and `CUE`, `SEG`, `DURATION` and `OUTPUT_DURATION` are computed by accumulation. To lengthen or insert a scene, edit its segment: every later cue, timeline window and sound moves with it. Scene code must express times relative to cues (`CUE.world - 0.2`, never `2.8`). To re-time the whole film uniformly, change `TIME_SCALE`.
 
 ## Frame pipeline
 
@@ -43,7 +45,13 @@ export default class SceneExample extends Scene {
 }
 ```
 
-Then register it in `src/timeline/timeline.ts` with its window. Use cues from `src/timeline/cues.ts`, and never hard-code times that the sound design also depends on.
+Then register it in `src/timeline/timeline.ts` with its window.
+
+### Panel scenes (05a–05c)
+
+The scenes inside gallery panels (`sceneDinoEra`, `sceneWheel`, `sceneTowardAI`) extend `PanelScene` and are **not** timeline entries: the gallery host (`sceneDigitalArt`) owns them, renders each into its own HDR target (plus a mip-mapped 1024×576 copy for when the panel is small) and owns the camera that zooms into and out of them. A panel shows the central 4:3 crop of its 16:9 frame; as the camera arrives the mask opens to 16:9, so at `Z = 1080/225` the frame fills the screen exactly and the host just blits it. The time a panel scene is shown is `clamp(t, tIn, tOut)`: its first frame (the thumbnail) before the zoom, live while entered, frozen after. A frozen frame is a pure function of a constant time, so the host caches it (re-rendering only when the shown time changes). The line is handed over explicitly: while the host carries the head it sets `drawHead = false` and draws it at `headAt(t)` mapped through the panel; full-frame, the panel scene draws it itself.
+
+The infinite gallery (05d) is the same shader descending through nesting levels: a panel holds a whole gallery `K = 8`× smaller about its centre, and a panel larger than ~420 px on screen is replaced by the gallery it holds. The camera zooms two levels (×64); the final hand-off to Ored runs on level 2 (`worldToScreen(t, x, y, level)`). Use cues from `src/timeline/cues.ts`, and never hard-code times that the sound design also depends on.
 
 `Frame`: `t` (film seconds), `lt` / `p` (local time and progress in the window), `under` / `tin` (the previous scene's frame and the overlap progress), `tout`.
 
@@ -57,6 +65,8 @@ Then register it in `src/timeline/timeline.ts` with its window. Use cues from `s
 - **`art/paint.ts`**: a Canvas2D brush kit with `dabStroke` (pigment), `dryBrush` (bristles running dry), `splatter`, `wobblyCircle`, `paintFirstMark`. It is used once at init to paint plates.
 - **`art/eras.ts`**: the six eras of the same composition. **`art/gallery.ts`**: the gallery atlas (13 original pieces). **`art/plates.ts`**: the shared texture cache and the art camera.
 - **`typography/fonts.ts`**: `setText(ctx, style)` and `measure()`, with tracking in em. Fonts are bundled, so nothing is fetched at render time.
+- **`motifs/figure.ts`**: the capsule rig of the walking figure (ape → hominid → human as one parameter, a gait phase, reach, kneel and arm overrides). Used by 03a and by the people of 05b. **`motifs/hand.ts`**: the 03b hand pose, shared with 03a's push-in morph.
+- **`shaders/relief.ts`**: capsule bodies as one smooth SDF, shaded in the film's contour-relief language (`bonesGLSL`, `reliefShade`, `BoneArray`, `chain`). Dinosaurs, people and robots all use it; `shaders/topo.ts` has the same relief for the figure and the hand, with a mirror flag and a distance-field morph between them.
 - **`utils/math.ts`**: `ease.*`, `keys(t, [[t, v, ease], …])`, `prog`, `window01`, `Rng`, `hash`, `noise1/2`, `fbm2`, `catmull`, `hexLin`.
 
 ## Hand-offs (continuity)
@@ -70,6 +80,10 @@ The line's head is never cut. Each boundary is solved with shared geometry inste
 | Human → Art | `MARK`: the first mark's centre and radius; the same `paintFirstMark()` paints it in both scenes; the same stone GLSL |
 | Art → Digital | `art/plates.ts`: `artCam(t)`; Digital starts in art space with the art camera and quantises the E5 plate |
 | Digital → Ored | `motifs/ored.ts`: `charPos(i)`; assigned panels fly to the exact character cells |
+| World → Evolution | `dive(t)` lands with the touchdown point `PAN` px right of the mark and keeps scrolling (`evoPan`); the line's head starts at the landed point |
+| Evolution → Human | the figure stops with its fingertip on `MARK_START`; `evoPush` scales the terrain and the figure about it; the figure's SDF morphs into `handPose(CUE.human)` (`motifs/hand.ts`) |
+| Gallery → panels | the panel's frame mapping (`subToWorld`), the 4:3 → 16:9 mask, `headAt(t)` of the panel scene |
+| Panels → infinite gallery | the same shader, nesting levels about the centre panel; the UI and threads move to level 2 |
 | Ored → Outro | Outro scales Ored's frame into the screen centre, the position of the film's first frame |
 
 ## Output scale (4K)
@@ -81,6 +95,10 @@ Scenes lay out in logical 1920×1080 px. `?scale=2` (`--scale 2`) makes every re
 1. `bun run typecheck`
 2. `bun scripts/render.ts sheet --only <scene> --from a --to b --n 12`, then look at the PNG.
 3. `bun scripts/render.ts stills --only <scene> --t x,y` for full-resolution frames.
-4. `bun scripts/render.ts scene <id>` to judge motion.
+4. `bun scripts/render.ts scene <id>` to judge motion (panel scenes: render the `digital` window, or `video --from --to`).
 
 The render script prints `SCENE ERRORS` and the browser console. A scene that throws renders dark red, so the failure is obvious in a sheet.
+
+## Resumable rendering
+
+`bun scripts/render.ts segments` splits the film into fixed chunks (`--chunk`, default 5 s) rendered to `<dir>/NNN.mp4` with identical x264 settings. A chunk that exists with the right frame count (`ffprobe -count_frames`) is skipped, so a killed run resumes where it stopped. `--jobs` workers each keep one browser (started 25 s apart) and take the next pending chunk; a chunk is written to `.part.mp4` and renamed only after its frame count checks out, a dead or stalled browser (watchdog: no frame for 180 s) costs one chunk, which is retried. Then the chunks are concatenated losslessly and the audio is muxed.
