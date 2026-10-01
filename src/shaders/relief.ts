@@ -10,7 +10,10 @@ export interface Capsule { a: [number, number]; b: [number, number]; ra: number;
 export function bonesGLSL(name: string, n: number) {
   return /* glsl */ `
   uniform vec4 ${name}A[${n}]; uniform vec2 ${name}R[${n}];
-  float ${name}SD(vec2 p, int first, int count, float k) {
+  float ${name}SD(vec2 p, int first, int count, float k, vec4 box) {
+    // outside the body's bounding box (plus a margin) the distance to the box is a good enough bound
+    float far = length(max(max(box.xy - p, p - box.zw), 0.0));
+    if (far > 24.0) return far;
     float d = 1e5;
     for (int i = 0; i < ${n}; i++) {
       if (i < first) continue;
@@ -65,6 +68,18 @@ export class BoneArray {
       this.R[first + i]!.set(b.ra, b.rb);
     }
   }
+}
+
+/** Bounding box (x0, y0, x1, y1) of capsules, radii included; a far-away box when empty. */
+export function boxOf(caps: Capsule[], pad = 0): THREE.Vector4 {
+  if (!caps.length) return new THREE.Vector4(-1e5, -1e5, -1e5, -1e5);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const c of caps) {
+    const r = Math.max(c.ra, c.rb) + pad;
+    x0 = Math.min(x0, c.a[0] - r, c.b[0] - r); x1 = Math.max(x1, c.a[0] + r, c.b[0] + r);
+    y0 = Math.min(y0, c.a[1] - r, c.b[1] - r); y1 = Math.max(y1, c.a[1] + r, c.b[1] + r);
+  }
+  return new THREE.Vector4(x0, y0, x1, y1);
 }
 
 /** A chain of capsules through points with radii tapering from r0 to r1. */

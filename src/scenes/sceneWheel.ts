@@ -10,7 +10,7 @@ import { FSPass, canvasTexture, W, H } from '../engine/gl';
 import { LineBatch } from '../engine/lines';
 import { LineMotif, arc, rgba } from '../motifs/line';
 import { pose, NB, type P2, type PoseOpts } from '../motifs/figure';
-import { bonesGLSL, RELIEF_SHADE_GLSL, BoneArray, type Capsule } from '../shaders/relief';
+import { bonesGLSL, RELIEF_SHADE_GLSL, BoneArray, boxOf, type Capsule } from '../shaders/relief';
 import { makeCanvas, dabStroke, splatter, wobblyCircle, hexRGB, mixRGB, resample, type RGB } from '../art/paint';
 import { CUE } from '../timeline/cues';
 import { clamp, ease, lerp, smoothstep, TAU, catmull, hexLin, Rng, type V2 } from '../utils/math';
@@ -33,7 +33,7 @@ export default class SceneWheel extends PanelScene {
   motif = new LineMotif();
   strokes: Stroke[] = [];
   pass = new FSPass(/* glsl */ `
-    uniform float t; uniform sampler2D paint, order;
+    uniform float t; uniform sampler2D paint, order; uniform vec4 fbox[3];
     uniform vec2 w1, w2; uniform float rot, discK, discA, holeK, spokeK, w2K, tNorm;
     ${bonesGLSL('fg', 3 * NB)}
     ${RELIEF_SHADE_GLSL}
@@ -105,16 +105,17 @@ export default class SceneWheel extends PanelScene {
       vec3 Ld = normalize(vec3(-0.5, -0.6, 0.6));
       vec3 fill = ink * 1.6;
       vec3 lineC = C_PAPER * 0.55;
-      c = reliefShade(c, fgSD(px, ${NB * 2}, ${NB}, 6.0), fill, lineC, 6.0, Ld, 1.0);
-      c = reliefShade(c, fgSD(px, ${NB}, ${NB}, 6.0), fill, lineC, 6.0, Ld, 1.0);
+      c = reliefShade(c, fgSD(px, ${NB * 2}, ${NB}, 6.0, fbox[2]), fill, lineC, 6.0, Ld, 1.0);
+      c = reliefShade(c, fgSD(px, ${NB}, ${NB}, 6.0, fbox[1]), fill, lineC, 6.0, Ld, 1.0);
       // the wheels (and the cart's maker in front of them)
       c = wheel(c, px, w2, w2K, 0.0, 1.0);
       c = wheel(c, px, w1, discK, 0.0, discA);
-      c = reliefShade(c, fgSD(px, 0, ${NB}, 7.0), fill, lineC, 6.0, Ld, 1.0);
+      c = reliefShade(c, fgSD(px, 0, ${NB}, 7.0, fbox[0]), fill, lineC, 6.0, Ld, 1.0);
       fragColor = vec4(c, 1.0);
     }`, {
     t: { value: 0 }, paint: { value: null }, order: { value: null }, w1: { value: new THREE.Vector2() }, w2: { value: new THREE.Vector2() },
     rot: { value: 0 }, discK: { value: 0 }, discA: { value: 0 }, holeK: { value: 0 }, spokeK: { value: 0 }, w2K: { value: 0 }, tNorm: { value: 0 },
+    fbox: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
     ...this.bones.uniforms('fg'),
   });
 
@@ -255,7 +256,7 @@ export default class SceneWheel extends PanelScene {
     u.spokeK!.value = smoothstep(AXLE + 0.6, AXLE + 1.0, t);
     u.w2K!.value = ease.outCubic(clamp((t - (CART + 0.1)) / 0.4));
     const ppl = this.people(t);
-    ppl.forEach((p, i) => this.bones.set(i * NB, NB, p));
+    ppl.forEach((p, i) => { this.bones.set(i * NB, NB, p); (u.fbox!.value as THREE.Vector4[])[i]!.copy(boxOf(p, 10)); });
     this.pass.render(r, out);
 
     // the cart: platform, pole, drawn in ink as it is built

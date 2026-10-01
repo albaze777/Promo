@@ -9,7 +9,7 @@ import { PanelScene, type Frame } from '../engine/scene';
 import { FSPass } from '../engine/gl';
 import { LineBatch, type RGBA } from '../engine/lines';
 import { LineMotif, RED, BONE, ASH, rgba, arc } from '../motifs/line';
-import { bonesGLSL, RELIEF_SHADE_GLSL, BoneArray, type Capsule } from '../shaders/relief';
+import { bonesGLSL, RELIEF_SHADE_GLSL, BoneArray, boxOf, type Capsule } from '../shaders/relief';
 import { MARK } from '../motifs/world';
 import { CUE } from '../timeline/cues';
 import { clamp, ease, keys, lerp, smoothstep, TAU, catmull, polyLengths, type V2 } from '../utils/math';
@@ -76,7 +76,7 @@ export default class SceneTowardAI extends PanelScene {
   items: Item[] = [];
   traces: { pts: V2[]; t0: number; t1: number }[] = [];
   pass = new FSPass(/* glsl */ `
-    uniform vec2 cam; uniform float camS, t;
+    uniform vec2 cam; uniform float camS, t; uniform vec4 rbox;
     ${bonesGLSL('rb', NBONES)}
     ${RELIEF_SHADE_GLSL}
     void main() {
@@ -91,10 +91,10 @@ export default class SceneTowardAI extends PanelScene {
       c += C_BONE * 0.22 * (base + tick * 0.6);
       // the robots: the same relief as every body in the film, in blueprint tones
       vec3 Ld = normalize(vec3(-0.5, -0.65, 0.6));
-      float d = rbSD(px, 0, ${NBONES}, 4.0);
+      float d = rbSD(px, 0, ${NBONES}, 4.0, rbox);
       c = reliefShade(c, d, C_INK2 * 1.7 + C_GRAPHITE * 0.05, C_BONE * 0.85, 6.0, Ld, 1.0);
       fragColor = vec4(c, 1.0);
-    }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, ...this.bones.uniforms('rb') });
+    }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, rbox: { value: new THREE.Vector4() }, ...this.bones.uniforms('rb') });
 
   override init() {
     const bone = rgba(BONE, 0.85, 0.75), ash = rgba(ASH, 0.6, 0.6);
@@ -256,7 +256,9 @@ export default class SceneTowardAI extends PanelScene {
     u.camS!.value = cam.s; u.t!.value = t;
     const rb = this.robots(t);
     const S = (p: V2) => this.scr(t, p);
-    this.bones.set(0, NBONES, rb.caps.map((c) => ({ a: S(c.a), b: S(c.b), ra: c.ra * cam.s, rb: c.rb * cam.s })));
+    const caps = rb.caps.map((c) => ({ a: S(c.a), b: S(c.b), ra: c.ra * cam.s, rb: c.rb * cam.s }));
+    this.bones.set(0, NBONES, caps);
+    (u.rbox!.value as THREE.Vector4).copy(boxOf(caps, 10));
     this.pass.render(r, out);
 
     const L = this.L, D = this.dots;

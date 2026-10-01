@@ -59,13 +59,13 @@ async function openPage(url: string, only?: string): Promise<{ browser: Browser;
   // Skia-on-SwiftShader is ~10× slower than Skia's CPU raster for Canvas2D
   if (angle === 'swiftshader') args.push('--disable-accelerated-2d-canvas');
   const exe = chromePath();
-  const browser = await chromium.launch({ headless: !flag('headed'), args, ...(exe ? { executablePath: exe } : { channel: 'chrome' }) });
+  const browser = await chromium.launch({ headless: !flag('headed'), args, timeout: 180000, ...(exe ? { executablePath: exe } : { channel: 'chrome' }) });
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
   const logs: string[] = [];
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(`[${m.type()}] ${m.text()}`); });
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   await page.goto(`${url}/?export=1${only ? `&only=${only}` : ''}${SCALE !== 1 ? `&scale=${SCALE}` : ''}`);
-  await page.waitForFunction(() => (window as any).__promo?.ready || (window as any).__promo?.error, null, { timeout: 300000 });
+  await page.waitForFunction(() => (window as any).__promo?.ready || (window as any).__promo?.error, null, { timeout: 900000 });
   const err = await page.evaluate(() => (window as any).__promo.error);
   if (err) throw new Error(`app failed to boot:\n${err}\n${logs.join('\n')}`);
   const errs: string[] = await page.evaluate(() => (window as any).__promo.errors);
@@ -149,7 +149,7 @@ async function streamTo(page: Page, browser: Browser, from: number, to: number, 
   const watchdog = new Promise<never>((_, rej) => {
     iv = setInterval(() => {
       if (frames !== lastFrames) { lastFrames = frames; lastChange = performance.now(); }
-      else if (performance.now() - lastChange > 180000) { clearInterval(iv); rej(new Error(`[${label}] no frame for 180 s`)); }
+      else if (performance.now() - lastChange > 300000) { clearInterval(iv); rej(new Error(`[${label}] no frame for 300 s`)); }
       if (frames >= total) clearInterval(iv);
     }, 1000);
   });
@@ -204,8 +204,12 @@ async function segments(url: string, from: number, to: number, out: string) {
     const b = Math.min(n1, a + per);
     all.push({ i, a, b, f: path.join(dir, `${String(i).padStart(3, '0')}.mp4`), n: b - a });
   }
-  const pending = all.filter((c) => countFrames(c.f) !== c.n);
-  console.log(`[segments] ${all.length} chunks of ${chunk}s in ${dir}; ${all.length - pending.length} done, ${pending.length} to render`);
+  // --shard i/n: this process renders only chunks with index ≡ i (mod n). Run n processes side by side (two
+  // workers inside one process can wedge each other's browser), then once more without --shard to concat.
+  const shard = opt('shard')?.split('/').map(Number);
+  const mine = (c: { i: number }) => !shard || c.i % shard[1]! === shard[0]!;
+  const pending = all.filter((c) => mine(c) && countFrames(c.f) !== c.n);
+  console.log(`[segments] ${all.length} chunks of ${chunk}s in ${dir}; ${all.filter((c) => countFrames(c.f) === c.n).length} done, ${pending.length} to render here`);
   const t0 = performance.now();
   const jobs = Math.max(1, Math.round(+opt('jobs', '2')!));
   let done = all.length - pending.length;
@@ -228,7 +232,8 @@ async function segments(url: string, from: number, to: number, out: string) {
           console.log(`[segments] chunk ${c.i} ok (${c.n} frames) — ${done}/${all.length} chunks, ${((performance.now() - t0) / 60000).toFixed(1)} min`);
           break;
         } catch (e) {
-          console.error(`${(e as Error).message} — attempt ${attempt}`);
+          console.error(`${new Date().toISOString().slice(11, 19)} ${(e as Error).message} — attempt ${attempt}`);
+          if (ctx?.logs.length) console.error(ctx.logs.filter((l) => !l.includes('404')).slice(-10).join('\n'));
           await close(ctx?.browser);
           ctx = null;
           if (attempt >= 3) throw e;
@@ -237,6 +242,9 @@ async function segments(url: string, from: number, to: number, out: string) {
     }
     await close(ctx?.browser);
   }));
+  if (shard) { console.log(`[segments] shard ${shard.join('/')} finished`); return; }
+  const missing = all.filter((c) => countFrames(c.f) !== c.n);
+  if (missing.length) throw new Error(`missing chunks: ${missing.map((c) => c.i).join(', ')}`);
   const list = path.join(dir, 'list.txt');
   writeFileSync(list, all.map((c) => `file '${c.f}'`).join('\n'));
   const audio = path.join(ROOT, 'public/audio/promo.wav');
@@ -353,3 +361,5 @@ try {
 } finally {
   stop();
 }
+// playwright / Bun.serve handles can keep the loop alive after a run: leave explicitly
+process.exit(0);

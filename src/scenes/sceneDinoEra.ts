@@ -9,7 +9,7 @@ import { PanelScene, type Frame } from '../engine/scene';
 import { FSPass } from '../engine/gl';
 import { LineBatch } from '../engine/lines';
 import { LineMotif, BONE, rgba } from '../motifs/line';
-import { bonesGLSL, RELIEF_SHADE_GLSL, BoneArray, chain, type Capsule } from '../shaders/relief';
+import { bonesGLSL, RELIEF_SHADE_GLSL, BoneArray, chain, boxOf, type Capsule } from '../shaders/relief';
 import { CUE } from '../timeline/cues';
 import { Rng, clamp, ease, lerp, smoothstep, TAU, bez, type V2 } from '../utils/math';
 
@@ -40,20 +40,14 @@ export default class SceneDinoEra extends PanelScene {
   motif = new LineMotif();
   fernSet: { x: number; y: number; h: number; lean: number; n: number; ph: number; depth: number; front: boolean }[] = [];
   pass = new FSPass(/* glsl */ `
-    uniform float t, camS, camX, impT, metK, glow; uniform vec2 meteor;
+    uniform float t, camS, camX, impT, metK, glow; uniform vec2 meteor; uniform vec4 box0, box1; uniform sampler2D ridges;
     ${bonesGLSL('cr', NBONES)}
     ${RELIEF_SHADE_GLSL}
     const vec2 I = vec2(${I[0].toFixed(1)}, ${I[1].toFixed(1)});
     const float H0 = ${H0.toFixed(1)};
     vec2 cam(vec2 p, float depth) { return vec2(960.0, 640.0) + (p - vec2(960.0, 640.0)) / camS - vec2(camX * depth / camS, 0.0); }
-    float ridgeFar(float x) {
-      float v = 560.0;
-      float h = 70.0 + 130.0 * fbm(vec2(x / 420.0, 1.3), 4) + 40.0 * fbm(vec2(x / 90.0, 7.1), 3);
-      float vol = 250.0 * exp(-pow((x - v) / 190.0, 2.0));
-      vol = min(vol, 225.0 - 6.0 * smoothstep(40.0, 0.0, abs(x - v))); // crater
-      return H0 - max(h, vol + 60.0);
-    }
-    float ridgeMid(float x) { return H0 + 12.0 - (30.0 + 80.0 * fbm(vec2(x / 260.0 + 5.0, 3.7), 4)); }
+    // the ridge profiles are static functions of x: precomputed once (RIDGE_GLSL) and looked up
+    float ridgeTex(float x, float ch) { vec4 r = texture(ridges, vec2((x + 1024.0) / 4096.0, 0.5)); return ch < 0.5 ? r.r : r.g; }
     vec3 hatch(vec3 c, float y, float top, float bottom, vec3 lineC, float step) {
       float v = (y - top) / max(bottom - top, 1.0);
       float x = v * 9.0;
@@ -80,11 +74,12 @@ export default class SceneDinoEra extends PanelScene {
       c += warmL * light * (exp(-dI / 220.0) * 0.7 + exp(-dI / 800.0) * 0.1);
       // ---- far ridge + volcano (contour hatched), its plume drifting ----
       vec2 pf = cam(px, 0.15);
-      float yF = ridgeFar(pf.x);
+      float yF = ridgeTex(pf.x, 0.0);
       // plume
       vec2 pl = pf - vec2(560.0, H0 - 290.0);
-      float plume = smoothstep(0.0, -300.0, pl.y) * exp(-pow(pl.x - pl.y * -0.35 - 20.0 * sin(pl.y / 60.0 + t), 2.0) / (2.0 * pow(28.0 - pl.y * 0.25, 2.0)));
-      plume *= 0.6 + 0.4 * fbm(vec2(pl.x / 50.0 - t * 0.2, pl.y / 50.0 + t * 0.6), 4);
+      float plume = 0.0;
+      if (abs(pl.x) < 420.0 && pl.y < 40.0) plume = smoothstep(0.0, -300.0, pl.y) * exp(-pow(pl.x - pl.y * -0.35 - 20.0 * sin(pl.y / 60.0 + t), 2.0) / (2.0 * pow(28.0 - pl.y * 0.25, 2.0)));
+      if (plume > 0.002) plume *= 0.6 + 0.4 * fbm(vec2(pl.x / 50.0 - t * 0.2, pl.y / 50.0 + t * 0.6), 4);
       c = mix(c, C_GRAPHITE * 0.25, plume * 0.8);
       if (pf.y > yF) {
         vec3 m = C_INK2 * 0.7;
@@ -96,7 +91,7 @@ export default class SceneDinoEra extends PanelScene {
       }
       // ---- mid hills ----
       vec2 pm = cam(px, 0.45);
-      float yM = ridgeMid(pm.x);
+      float yM = ridgeTex(pm.x, 1.0);
       if (pm.y > yM) {
         vec3 m = mix(C_INK2, C_WARMINK, 0.5) * 0.9;
         m = hatch(m, pm.y, yM, H0 + 60.0, C_BONE * 0.08, 0.0);
@@ -121,8 +116,8 @@ export default class SceneDinoEra extends PanelScene {
       vec3 Ld = mix(normalize(vec3(-0.6, -0.55, 0.55)), normalize(vec3(I - px, 260.0)), imp);
       vec3 fill = mix(C_WARMBONE, C_TERRACOTTA, 0.35) * 0.055;
       vec3 lineC = mix(C_BONE, C_WARMBONE, 0.5) * (0.95 + 0.6 * light);
-      float d1 = crSD(px, 0, 24, 14.0);
-      float d2 = crSD(px, 24, 24, 10.0);
+      float d1 = crSD(px, 0, 24, 14.0, box0);
+      float d2 = crSD(px, 24, 24, 10.0, box1);
       c = reliefShade(c, d1, fill, lineC, 7.5, Ld, 1.0);
       c = reliefShade(c, d2, fill * 1.1, lineC, 7.5, Ld, 1.0);
       // ---- impact: the shockwave hairline (the ignition's ring, again), dust ----
@@ -144,10 +139,24 @@ export default class SceneDinoEra extends PanelScene {
       fragColor = vec4(c, 1.0);
     }`, {
     t: { value: 0 }, camS: { value: 1 }, camX: { value: 0 }, impT: { value: 0 }, metK: { value: 0 }, glow: { value: 0 },
-    meteor: { value: new THREE.Vector2() }, ...this.bones.uniforms('cr'),
+    meteor: { value: new THREE.Vector2() }, box0: { value: new THREE.Vector4() }, box1: { value: new THREE.Vector4() }, ridges: { value: null },
+    ...this.bones.uniforms('cr'),
   });
+  ridgeRT = new THREE.WebGLRenderTarget(4096, 1, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+  ridgePass = new FSPass(/* glsl */ `
+    float ridgeFar(float x) {
+      float v = 560.0;
+      float h = 70.0 + 130.0 * fbm(vec2(x / 420.0, 1.3), 4) + 40.0 * fbm(vec2(x / 90.0, 7.1), 3);
+      float vol = 250.0 * exp(-pow((x - v) / 190.0, 2.0));
+      vol = min(vol, 225.0 - 6.0 * smoothstep(40.0, 0.0, abs(x - v)));
+      return ${H0.toFixed(1)} - max(h, vol + 60.0);
+    }
+    float ridgeMid(float x) { return ${H0.toFixed(1)} + 12.0 - (30.0 + 80.0 * fbm(vec2(x / 260.0 + 5.0, 3.7), 4)); }
+    void main() { float x = gl_FragCoord.x - 1024.0; fragColor = vec4(ridgeFar(x), ridgeMid(x), 0.0, 1.0); }`);
 
   override init() {
+    this.ridgePass.render(this.ctx.renderer, this.ridgeRT);
+    this.pass.u.ridges!.value = this.ridgeRT.texture;
     const r = new Rng(4242);
     // ferns: a band along the near ground, a few larger ones in front
     for (let i = 0; i < 19; i++) {
@@ -288,8 +297,11 @@ export default class SceneDinoEra extends PanelScene {
     (u.meteor!.value as THREE.Vector2).set(hp[0], hp[1]);
     // creatures, in screen space (camera applied to every joint)
     const cs = (b: Capsule): Capsule => ({ a: toScr(t, b.a), b: toScr(t, b.b), ra: b.ra * cam.s, rb: b.rb * cam.s });
-    this.bones.set(0, 24, this.sauropod(t).map(cs));
-    this.bones.set(24, 24, this.rex(t).map(cs));
+    const sa = this.sauropod(t).map(cs), rx = this.rex(t).map(cs);
+    this.bones.set(0, 24, sa);
+    this.bones.set(24, 24, rx);
+    (u.box0!.value as THREE.Vector4).copy(boxOf(sa, 16));
+    (u.box1!.value as THREE.Vector4).copy(boxOf(rx, 12));
     this.pass.render(r, out);
 
     // ferns: hairline fronds that sway; lit by the impact
