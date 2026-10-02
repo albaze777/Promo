@@ -10,7 +10,7 @@ import { FSPass, canvasTexture, W, H } from '../engine/gl';
 import { LineBatch } from '../engine/lines';
 import { LineMotif, arc, rgba } from '../motifs/line';
 import { pose, NB, type P2, type PoseOpts, type Look } from '../motifs/figure';
-import { BODY_COMMON_GLSL, bodyGLSL, PartArray, boxOf, type Part } from '../shaders/relief';
+import { bodyCommon, bodyGLSL, PartArray, boxOf, type Part } from '../shaders/relief';
 import { makeCanvas, dabStroke, splatter, wobblyCircle, hexRGB, mixRGB, resample, type RGB } from '../art/paint';
 import { CUE } from '../timeline/cues';
 import { clamp, ease, lerp, smoothstep, TAU, catmull, hexLin, Rng, type V2 } from '../utils/math';
@@ -35,7 +35,7 @@ export default class SceneWheel extends PanelScene {
   pass = new FSPass(/* glsl */ `
     uniform float t; uniform sampler2D paint, order; uniform vec4 fbox[3];
     uniform vec2 w1, w2; uniform float rot, discK, discA, holeK, spokeK, w2K, tNorm, build, pb, loadK;
-    ${BODY_COMMON_GLSL}
+    ${bodyCommon('organic')}
     ${bodyGLSL('fg', 3 * NB)}
     const float R = ${R.toFixed(1)};
     float wallEdge(float y) { return 1210.0 + 50.0 * sin(y / 150.0) + 70.0 * fbm(vec2(y / 220.0, 2.0), 3) - (700.0 - y) * 0.12; }
@@ -68,6 +68,22 @@ export default class SceneWheel extends PanelScene {
       float pa = mod(a - rot + PI / 8.0, PI / 4.0) - PI / 8.0;
       float peg = smoothstep(3.6, 2.4, length(vec2(pa * R * 0.895, r - R * 0.895))) * spokeK;
       w = mix(w, vec3(0.05, 0.03, 0.018), peg);
+      // the spokes: their grain runs along them (radially), with a tenon line where each enters the felloe
+      float onSpoke = spokeK * step(R * 0.3, r) * step(r, R * 0.79);
+      float sg = fbm(vec2(r / 40.0, sa * r / 1.4 + 3.0), 3);
+      w = mix(w, wood * (0.75 + 0.45 * sg), onSpoke * 0.85);
+      w *= 1.0 - 0.5 * onSpoke * sat(pxLine(r - R * 0.76, 1.0) * step(abs(sa) * r, R * 0.1));
+      // the felloe in four segments: a butt joint between each pair, a peg either side; wear and dirt on the tread
+      float sj = mod(a - rot, PI * 0.5) - PI * 0.25;
+      w *= 1.0 - 0.6 * felloe * sat(pxLine(sj * r, 1.0));
+      float tread = smoothstep(R * 0.93, R * 0.99, r) * spokeK;
+      w = mix(w, vec3(0.13, 0.1, 0.07), tread * (0.35 + 0.35 * smoothstep(-0.2, 0.8, d.y / R)) * (0.7 + 0.6 * vnoise(vec2(a * 40.0, r))));
+      // an iron band round the hub, with nail heads; the axle pin greased dark
+      float band = smoothstep(2.2, 0.8, abs(r - R * 0.285)) * spokeK;
+      vec3 iron = vec3(0.05, 0.048, 0.05) * (0.8 + 0.6 * sat(dot(normalize(d), vec2(-0.7, -0.7))));
+      w = mix(w, iron, band);
+      float hn = mod(a - rot, PI / 3.0) - PI / 6.0;
+      w = mix(w, vec3(0.15, 0.14, 0.13), smoothstep(2.2, 1.2, length(vec2(hn * R * 0.285, r - R * 0.285))) * spokeK);
       // the hub: a raised boss with a dark axle hole
       float hub = smoothstep(R * 0.3, R * 0.27, r) * spokeK;
       w = mix(w, wood * 1.25 * (1.0 - 0.4 * smoothstep(R * 0.15, R * 0.28, r)), hub);
@@ -158,6 +174,9 @@ export default class SceneWheel extends PanelScene {
           float dl = sdCapsule(px, la, lb, 6.0 * s, 6.0 * s);
           if (dl < 1.0) {
             vec3 bark = vec3(0.16, 0.1, 0.06) * (0.7 + 0.5 * vnoise(vec2((px.x - la.x) / 6.0, (px.y - la.y) / 1.5) + fk));
+            bark *= 1.0 - 0.5 * smoothstep(0.7, 0.9, vnoise(vec2((px.x - la.x) / 14.0, (px.y - la.y) / 0.8) + fk * 3.0));   // fissures
+            bark = mix(bark, vec3(0.3, 0.32, 0.16), smoothstep(0.78, 0.9, vnoise((px - la) / 4.0 + fk * 5.0)) * 0.6);         // lichen
+            bark *= 0.75 + 0.4 * smoothstep(3.0, -5.0, px.y - lc.y);                                                         // the round log, lit above
             // the cut end shows its rings
             float endR = length(px - lb);
             bark = mix(bark, vec3(0.5, 0.36, 0.2) * (0.85 + 0.15 * sin(endR * 2.2)), smoothstep(6.5, 5.0, endR) * step(lb.x - 1.0, px.x));
@@ -166,7 +185,7 @@ export default class SceneWheel extends PanelScene {
           dAll = min(dAll, dl);
         }
         float rope = sdBox(px - vec2(x0 + 70.0, top - 12.0), vec2(2.0, 14.0 * s));
-        c = mix(c, vec3(0.45, 0.35, 0.21), fill(rope));
+        c = mix(c, vec3(0.45, 0.35, 0.21) * (0.7 + 0.5 * smoothstep(0.3, 0.7, fract((px.y + (px.x - x0 - 70.0) * 1.6) / 3.0))), fill(rope));
         // the pot
         vec2 pc = vec2(x0 + 230.0, top - 30.0 * s);
         vec2 pq = (px - pc) / max(s, 0.01);
@@ -176,6 +195,12 @@ export default class SceneWheel extends PanelScene {
           vec3 clay = C_TERRACOTTA * 0.55 * (0.7 + 0.5 * smoothstep(20.0, -20.0, pq.x + pq.y * 0.5));
           clay = mix(clay, C_OCHRE * 0.6, smoothstep(2.5, 1.5, abs(pq.y + 6.0) - 3.0));
           clay = mix(clay, ink, pxLine(abs(pq.y + 6.0) - 6.0, 1.0) * 0.5);
+          // an incised zigzag along the band, finger marks in the clay, a soft sheen on the shoulder
+          float zz = abs(fract(pq.x / 8.0) - 0.5) * 8.0 - 2.0;
+          clay = mix(clay, clay * 0.45, pxLine(pq.y + 6.0 - zz, 0.8) * step(abs(pq.y + 6.0), 3.5) * 0.8);
+          clay *= 0.9 + 0.2 * vnoise(vec2(pq.x / 2.0, pq.y / 9.0));
+          clay += vec3(0.25, 0.18, 0.12) * 0.25 * smoothstep(9.0, 0.0, length(pq - vec2(-12.0, -14.0)));
+          clay = mix(clay, vec3(0.5, 0.32, 0.2), smoothstep(1.4, 0.4, length(pq - vec2(7.0, -33.5))) * 0.8);   // a chip on the rim
           clay = mix(clay, vec3(0.03, 0.015, 0.01), smoothstep(1.0, -1.0, sdBox(pq - vec2(0.0, -32.0), vec2(9.0, 2.5))));
           c = mix(c, clay, fill(dpot));
         }
@@ -186,6 +211,8 @@ export default class SceneWheel extends PanelScene {
           dst = dst > 0.0 ? dst : dst * s;
           if (s < 0.99) dst += (1.0 - s) * 14.0;
           vec3 st = vec3(0.32, 0.31, 0.29) * (0.6 + 0.6 * smoothstep(6.0, -6.0, px.x - sc.x + px.y - sc.y));
+          st *= 0.8 + 0.35 * vnoise((px - sc) / 1.3 + float(k) * 7.0);
+          st = mix(st, st * 0.4, pxLine(px.x - sc.x - 3.0 * sin((px.y - sc.y) * 0.4 + float(k)), 0.7) * step(abs(px.y - sc.y), 5.0) * float(k != 1));
           c = mix(c, st, fill(dst));
           dAll = min(dAll, dst);
         }
@@ -300,8 +327,18 @@ export default class SceneWheel extends PanelScene {
       vec3 Lc = vec3(1.0, 0.95, 0.86);
       // three people, three looks: skin, hair and what they wear
       vec3 lineC = vec3(0.0);
-      c = bodyShade(c, fgBody(px, ${NB * 2}, ${NB}, fbox[2]), Ld, Lc, vec3(0.13, 0.045, 0.018), vec3(0.4, 0.25, 0.155), vec3(0.11, 0.13, 0.075), 0.0, 0.0, lineC, 6.0, 1.0);
-      c = bodyShade(c, fgBody(px, ${NB}, ${NB}, fbox[1]), Ld, Lc, vec3(0.018, 0.015, 0.013), vec3(0.15, 0.08, 0.047), vec3(0.4, 0.23, 0.065), 0.0, 0.0, lineC, 6.0, 1.0);
+      // the two painters share one shading call (the second, kneeling in front, wins where it is; under its
+      // anti-aliased edge the first shows as a flat stand-in of its skin)
+      {
+        Body p2 = fgBody(px, ${NB * 2}, ${NB}, fbox[2]), p1 = fgBody(px, ${NB}, ${NB}, fbox[1]);
+        bool front = p1.d < 1.5;
+        if (front && p2.d < 1.5) c = mix(c, vec3(0.4, 0.25, 0.155) * Lc * 0.7, smoothstep(1.1, -1.1, p2.d));
+        Body pf = p2; if (front) pf = p1;
+        c = bodyShade(c, pf, Ld, Lc,
+                      front ? vec3(0.018, 0.015, 0.013) : vec3(0.13, 0.045, 0.018),
+                      front ? vec3(0.15, 0.08, 0.047) : vec3(0.4, 0.25, 0.155),
+                      front ? vec3(0.4, 0.23, 0.065) : vec3(0.11, 0.13, 0.075), 0.0, 0.0, lineC, 6.0, 1.0);
+      }
       // the wheels (and the cart's maker in front of them)
       c = wheel(c, px, w2, w2K, 0.0, 1.0);
       c = wheel(c, px, w1, discK, 0.0, discA);

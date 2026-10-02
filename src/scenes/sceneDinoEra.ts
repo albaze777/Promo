@@ -13,7 +13,7 @@ import { PanelScene, type Frame } from '../engine/scene';
 import { FSPass, makeRT, clearRT } from '../engine/gl';
 import { LineBatch } from '../engine/lines';
 import { LineMotif, BONE, rgba } from '../motifs/line';
-import { BODY_COMMON_GLSL, bodyGLSL, PartArray, boxOf, MAT, type Part } from '../shaders/relief';
+import { bodyCommon, bodyGLSL, PartArray, boxOf, MAT, type Part } from '../shaders/relief';
 import { CUE } from '../timeline/cues';
 import { Rng, clamp, ease, lerp, smoothstep, TAU, bez, mulberry32, type V2 } from '../utils/math';
 
@@ -62,7 +62,7 @@ export default class SceneDinoEra extends PanelScene {
     uniform vec4 mBox, sBox; uniform vec4 gBox[8]; uniform vec2 gRange[8];
     uniform vec2 mtr[${NFIRE}]; uniform vec3 smk[${NSMOKE}];
     uniform sampler2D ridges, fx, skyL;
-    ${BODY_COMMON_GLSL}
+    ${bodyCommon('scales')}
     ${bodyGLSL('cr', NS + NR)}
     const vec2 I = vec2(${I[0].toFixed(1)}, ${I[1].toFixed(1)});
     const float H0 = ${H0.toFixed(1)};
@@ -70,7 +70,7 @@ export default class SceneDinoEra extends PanelScene {
      *  a pixel only evaluates the groups near it. The groups are smooth-unioned and their normals blended. */
     Body creature(vec2 px, int g0) {
       Body R; R.d = 1e5; R.mat = 0.0; R.uv = vec2(0.0); R.r = 1.0; R.t = vec2(1.0, 0.0); R.round = 0.0; R.n = vec3(0.0, 0.0, 1.0);
-      R.p = vec2(0.0);
+      R.p = vec2(0.0); R.ao = 0.0;
       vec3 nacc = vec3(0.0, 0.0, 1e-4);
       for (int g = 0; g < 4; g++) {
         vec2 rg = gRange[g0 + g];
@@ -78,8 +78,9 @@ export default class SceneDinoEra extends PanelScene {
         Body b = crBody(px, int(rg.x), int(rg.y), gBox[g0 + g]);
         nacc += b.n * exp(-clamp(b.d, -40.0, 40.0) / 6.0);
         float dd = smin(R.d, b.d, 12.0);
+        float cr = min(R.d, b.d) - dd;               // the crease between groups (hip, shoulder, neck)
         if (b.d < R.d) R = b;
-        R.d = dd;
+        R.d = dd; R.ao = max(R.ao, cr);
       }
       R.n = normalize(nacc);
       R.p = px - crA[int(gRange[g0].x)].xy;          // one pattern frame for the whole creature
@@ -381,10 +382,19 @@ export default class SceneDinoEra extends PanelScene {
       vec3 lineC = mix(C_BONE, C_WARMBONE, 0.5) * 0.55;
       Body b1 = creature(px, 0);
       Body b2 = creature(px, 4);
-      // the herbivore: a dark olive back, sage flanks with blotches, a pale belly
-      c = bodyShade(c, b1, L, Lc, vec3(0.06, 0.07, 0.04), vec3(0.36, 0.32, 0.22), vec3(0.15, 0.165, 0.095), 0.55, 1.0, lineC, 7.5, 1.0);
+      // one shading call for both (the shading is long, and a CPU rasteriser pays for every call on every pixel):
+      // the predator where it is (it stands in front), else the herbivore. Under the predator's anti-aliased edge
+      // the herbivore shows as a flat stand-in of its flank colour.
+      bool front = b2.d < 1.5;
+      if (front && b1.d < 1.5) c = mix(c, vec3(0.15, 0.165, 0.095) * Lc * 0.75, smoothstep(1.1, -1.1, b1.d));
+      // the herbivore: a dark olive back, sage flanks with blotches, a pale belly;
       // the predator: a near-black back, rust flanks with tiger bands, a cream belly and throat
-      c = bodyShade(c, b2, L, Lc, vec3(0.04, 0.03, 0.025), vec3(0.4, 0.3, 0.17), vec3(0.24, 0.085, 0.03), 1.0, 1.0, lineC, 7.5, 1.0);
+      Body bf = b1; if (front) bf = b2;
+      c = bodyShade(c, bf, L, Lc,
+                    front ? vec3(0.04, 0.03, 0.025) : vec3(0.06, 0.07, 0.04),
+                    front ? vec3(0.4, 0.3, 0.17) : vec3(0.36, 0.32, 0.22),
+                    front ? vec3(0.24, 0.085, 0.03) : vec3(0.15, 0.165, 0.095),
+                    front ? 1.0 : 0.55, 1.0, lineC, 7.5, 1.0);
       // ---- the shockwave: the film's hairline ring, now a pressure front ----
       if (ti > 0.0) {
         float R = 1700.0 * (1.0 - pow(2.0, -10.0 * ti / 2.6));
@@ -747,6 +757,10 @@ export default class SceneDinoEra extends PanelScene {
       sk.polyline([q(-0.35, 0.05), q(0.15, 0.08), q(0.6, 0.18)], (kk) => lerp(5.0, 2.2, kk) * s0, () => col);
       sk.polyline([q(-0.35, 0.05), q(-1.35, 0.25)], (kk) => lerp(3.0, 0.8, kk) * s0, () => col);
       sk.polyline([q(-0.4, 0.0), q(-0.05, -0.38)], (kk) => lerp(2.6, 0.8, kk) * s0, () => col);
+      // the feet trailing, an eye catching the glow
+      for (const dy of [0.0, 0.1]) sk.polyline([q(0.55, 0.16 + dy * 0.5), q(0.95, 0.24 + dy), q(1.05, 0.2 + dy)], (kk) => lerp(1.8, 0.9, kk) * s0, () => col);
+      const ey = q(-0.42, 0.02);
+      sk.dot(ey[0], ey[1], 1.6 * s0, [0.5, 0.2, 0.04, 0.9]);
       // the wings: an M — shoulder, a raised elbow, a long finger out to the tip; membrane back to the body
       for (const side of [-1, 1]) {
         const sh = q(0.0, 0.05);
@@ -759,6 +773,16 @@ export default class SceneDinoEra extends PanelScene {
           const bp = q(side * 0.2 * f + 0.25 * f, 0.12 + 0.1 * f);
           sk.seg2(e[0], e[1], bp[0], bp[1], 3.4 * s0, col);
         }
+        // the membrane's stiffening fibres, faintly lit from behind by the glow, and the claws at the wrist
+        const warm = [0.05, 0.02, 0.009, 0.7] as const;
+        for (let m = 1; m <= 5; m++) {
+          const f = 0.4 + m * 0.1;
+          const e: V2 = [lerp(el[0], tip[0], (f - 0.4) / 0.6), lerp(el[1], tip[1], (f - 0.4) / 0.6)];
+          const bp = q(side * 0.2 * f + 0.25 * f + side * 0.15, 0.1 + 0.08 * f);
+          sk.seg2(lerp(e[0], bp[0], 0.15), lerp(e[1], bp[1], 0.15), lerp(e[0], bp[0], 0.7), lerp(e[1], bp[1], 0.7), 0.7 * s0, warm);
+        }
+        sk.seg2(sh[0], sh[1], el[0], el[1], 0.8 * s0, [0.07, 0.03, 0.012, 0.8]);   // the arm's leading edge lit
+        for (let c = 0; c < 3; c++) { const a = side * (0.3 + c * 0.25); sk.seg2(el[0], el[1], el[0] + Math.sin(a) * 6 * s0, el[1] + Math.cos(a) * 6 * s0, 1.1 * s0, col); }
       }
     }
     clearRT(r, this.skyRT, [0, 0, 0], 0);

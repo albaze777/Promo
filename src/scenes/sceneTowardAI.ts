@@ -9,14 +9,16 @@ import { PanelScene, type Frame } from '../engine/scene';
 import { FSPass } from '../engine/gl';
 import { LineBatch, type RGBA } from '../engine/lines';
 import { LineMotif, RED, BONE, ASH, rgba, arc } from '../motifs/line';
-import { BODY_COMMON_GLSL, bodyGLSL, PartArray, boxOf, MAT, type Part } from '../shaders/relief';
+import { bodyCommon, bodyGLSL, PartArray, boxOf, MAT, type Part } from '../shaders/relief';
 import { MARK } from '../motifs/world';
 import { CUE } from '../timeline/cues';
 import { clamp, ease, keys, lerp, smoothstep, TAU, catmull, polyLengths, type V2 } from '../utils/math';
 
 const T0 = CUE.aiIn, GEARS = CUE.gears, CIRC = CUE.circuits, ROBOTS = CUE.robots, HAND = CUE.robotHand, OUT = CUE.aiOut;
 const BASE = 860;                              // the baseline (world y)
-const NBONES = 160;
+// parts per robot (each robot is its own group with its own bounding box: a pixel only walks the robot near it)
+const G0 = 0, N0 = 104, G1 = 104, N1 = 72, G2 = 176, N2 = 88;
+const NBONES = G2 + N2;
 const R3: V2 = [2980, BASE];                   // the arm's base
 const SHOULDER: V2 = [R3[0], BASE - 222];
 const CIRCLE = { c: [3232, 528] as V2, r: 92 };
@@ -76,8 +78,8 @@ export default class SceneTowardAI extends PanelScene {
   items: Item[] = [];
   traces: { pts: V2[]; t0: number; t1: number }[] = [];
   pass = new FSPass(/* glsl */ `
-    uniform vec2 cam; uniform float camS, t; uniform vec4 rbox; uniform vec3 robK; uniform float r2x;
-    ${BODY_COMMON_GLSL}
+    uniform vec2 cam; uniform float camS, t; uniform vec4 rbox[3]; uniform vec3 robK; uniform float r2x;
+    ${bodyCommon('mech')}
     ${bodyGLSL('rb', NBONES)}
     void main() {
       vec2 px = FRAG_PX;
@@ -164,11 +166,13 @@ export default class SceneTowardAI extends PanelScene {
       c += vec3(1.0, 0.9, 0.75) * 0.05 * mote * pool * (0.5 + 0.5 * sin(t * 2.0 + hash12(di) * 20.0));
       // the robots: the same relief as every body in the film, in blueprint tones
       vec3 Ld = normalize(vec3(-0.5, -0.65, 0.6));
-      Body B = rbBody(px, 0, ${NBONES}, rbox);
+      Body B = rbBody(px, ${G0}, ${N0}, rbox[0]);
+      Body B1 = rbBody(px, ${G1}, ${N1}, rbox[1]); if (B1.d < B.d) B = B1;
+      Body B2 = rbBody(px, ${G2}, ${N2}, rbox[2]); if (B2.d < B.d) B = B2;
       // steel; ivory enamel; industrial ochre
       c = bodyShade(c, B, Ld, vec3(1.0, 0.97, 0.92) * 1.1, vec3(0.15, 0.148, 0.145), vec3(0.6, 0.56, 0.48), vec3(0.5, 0.24, 0.035), 0.0, 1.0, C_BONE * 0.85, 6.0, 1.0);
       fragColor = vec4(c, 1.0);
-    }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, rbox: { value: new THREE.Vector4() }, robK: { value: new THREE.Vector3() }, r2x: { value: 2690 }, ...this.bones.uniforms('rb') });
+    }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, rbox: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] }, robK: { value: new THREE.Vector3() }, r2x: { value: 2690 }, ...this.bones.uniforms('rb') });
 
   override init() {
     const bone = rgba(BONE, 0.85, 0.75), ash = rgba(ASH, 0.6, 0.6);
@@ -229,7 +233,7 @@ export default class SceneTowardAI extends PanelScene {
     const elbow: V2 = [SHOULDER[0] + Math.cos(a1) * L1, SHOULDER[1] + Math.sin(a1) * L1];
     return { tip, wrist, elbow, handDir, k };
   }
-  robots(t: number): { caps: Part[]; joints: V2[]; guides: [V2, V2, number][] } {
+  robots(t: number): { caps: Part[]; joints: V2[]; guides: [V2, V2, number][]; split: [number, number] } {
     const caps: Part[] = [], joints: V2[] = [], guides: [V2, V2, number][] = [];
     const M = MAT.METAL, J = MAT.JOINT, DK = MAT.DARK, IV = MAT.PAINT, OC = MAT.PAINT2, BR = MAT.BRASS, LP = MAT.LAMP;
     /** One part, growing in on its construction guide from time t0. */
@@ -258,6 +262,8 @@ export default class SceneTowardAI extends PanelScene {
       const [pa, pb] = off(knee, ank, -15); part(lerp2(pa, pb, 0.1), lerp2(pa, pb, 0.85), 3.5, 3, b0 + 0.12 + k, DK, 0, false);
       part(lerp2(pa, pb, 0.08), lerp2(pa, pb, 0.45), 6, 6, b0 + 0.12 + k, M, 0, false);
       joint(knee, 11, b0 + 0.13 + k);
+      part([knee[0] + 9, knee[1] - 9], [knee[0] + 11, knee[1] + 5], 8, 7, b0 + 0.135 + k, M, 3, false);          // knee cap
+      part([ank[0] - 16, BASE - 12], [ank[0] - 20, BASE - 4], 5, 4, b0 + 0.06 + k, M, 0, false);                 // heel spur
       part(hip, knee, 19, 15, b0 + 0.15 + k, IV);
       part(lerp2(hip, knee, 0.3), lerp2(hip, knee, 0.42), 19.5, 18.5, b0 + 0.16 + k, OC, -1, false);
       joint(hip, 12, b0 + 0.17 + k);
@@ -289,6 +295,18 @@ export default class SceneTowardAI extends PanelScene {
     part(wr, pd, 8, 7, b0 + 0.6, M, 2);
     for (let f = 0; f < 3; f++) { const f1: V2 = [pd[0] + 2 + f * 3, pd[1] + 12], f2: V2 = [f1[0] - 1 + f, f1[1] + 10]; part(pd, f1, 3.5, 3, b0 + 0.62, M, 0, false); part(f1, f2, 3, 2.4, b0 + 0.63, M, 0, false); }
 
+    // R1 detail: a shoulder plate, a hose down the back, chest vents and status lights, a cheek grille, a thumb
+    part([sh[0] - 20, sh[1] - 12], [sh[0] + 18, sh[1] - 16], 15, 12, b0 + 0.51, OC, 4, false);
+    part([sh[0] - 14, sh[1] - 16], [sh[0] + 12, sh[1] - 19], 2, 2, b0 + 0.51, DK, -1, false);
+    { const hz: V2[] = [[ch[0] - 34, ch[1] + 30], [x1 - 30 + sw * 0.7, BASE - 285], [pel[0] - 26, pel[1] - 14]];
+      for (let k = 0; k < 2; k++) part(hz[k]!, hz[k + 1]!, 3.2, 3.2, b0 + 0.33, DK, 0, false);
+      for (const q of hz) part(q, [q[0] + 0.01, q[1]], 4.2, 4.2, b0 + 0.33, BR, 0, false); }
+    for (let k = 0; k < 3; k++) part([ch[0] - 24, ch[1] - 20 + k * 7], [ch[0] - 6, ch[1] - 20 + k * 7], 1.6, 1.6, b0 + 0.31, DK, -1, false);
+    for (let k = 0; k < 2; k++) part([ch[0] - 20 + k * 8, ch[1] + 4], [ch[0] - 20 + k * 8 + 0.01, ch[1] + 4], 2.3, 2.3, b0 + 0.33, k ? J : LP, -1, false);
+    for (let k = 0; k < 3; k++) part([hd[0] + 6, hd[1] + 9 + k * 4], [hd[0] + 22, hd[1] + 9 + k * 4], 1.1, 1.1, b0 + 0.43, DK, -1, false);
+    part(pd, [pd[0] - 9, pd[1] + 9], 3.2, 2.4, b0 + 0.62, M, 0, false);
+    const split1 = caps.length;
+
     // R2: a wheeled one — a sphere on a tyred wheel, a sensor dome with one eye, a gripper arm; rocking
     const b1 = ROBOTS + 0.75;
     const x2 = 2690 + 24 * Math.sin((t - b1) * 1.1);
@@ -314,6 +332,18 @@ export default class SceneTowardAI extends PanelScene {
     const gp: V2 = [re[0] + 30, re[1] - 24], op = 0.25 + 0.2 * Math.sin(t * 2.5);
     part(re, gp, 8, 6, b1 + 0.42);
     for (const sgn of [-1, 1]) { const a = Math.atan2(gp[1] - re[1], gp[0] - re[0]) + sgn * op; part(gp, [gp[0] + Math.cos(a) * 18, gp[1] + Math.sin(a) * 18], 4, 2, b1 + 0.44, M, 0, false); }
+
+    // R2 detail: an antenna, a headlamp, an exhaust, a hatch with screws
+    part([x2 - 10, BASE - 280], [x2 - 16, BASE - 322], 1.8, 1.3, b1 + 0.31, M, 0, false);
+    part([x2 - 16, BASE - 324], [x2 - 16.01, BASE - 324], 3.4, 3.4, b1 + 0.32, LP, 0, false);
+    part([x2 + 52, BASE - 196], [x2 + 52.01, BASE - 196], 8, 8, b1 + 0.2, BR, -1, false);
+    part([x2 + 52, BASE - 196], [x2 + 52.01, BASE - 196], 4.5, 4.5, b1 + 0.21, LP, -1, false);
+    part([x2 - 58, BASE - 180], [x2 - 80, BASE - 206], 5.5, 4.5, b1 + 0.21, BR, 2);
+    part([x2 - 80, BASE - 206], [x2 - 81, BASE - 207], 3, 3, b1 + 0.22, DK, -1, false);
+    for (const [a, b] of [[[-36, -126], [-8, -126]], [[-36, -104], [-8, -104]], [[-36, -126], [-36, -104]], [[-8, -126], [-8, -104]]] as [V2, V2][])
+      part([x2 + a[0], BASE + a[1]], [x2 + b[0], BASE + b[1]], 1.1, 1.1, b1 + 0.19, DK, -1, false);
+    for (const q of [[-31, -121], [-13, -121], [-31, -109], [-13, -109]] as V2[]) part([x2 + q[0], BASE + q[1]], [x2 + q[0] + 0.01, BASE + q[1]], 1.8, 1.8, b1 + 0.19, M, -1, false);
+    const split2 = caps.length;
 
     // R3: an industrial arm — bolted base, turret, links with a hydraulic piston and cables, a hand with jointed fingers
     const b2 = ROBOTS + 1.45;
@@ -349,7 +379,17 @@ export default class SceneTowardAI extends PanelScene {
     }
     const th: V2 = [ik.wrist[0] + hc * 20 + hs * 14, ik.wrist[1] + hs * 20 - hc * 14], th2: V2 = [th[0] + hc * 22 + hs * 8, th[1] + hs * 22 - hc * 8];
     part(th, th2, 7, 6, b2 + 0.46, M, 2); part(th2, [th2[0] + hc * 16, th2[1] + hs * 16], 6, 4.5, b2 + 0.47, M, 2, false);
-    return { caps, joints, guides };
+    // R3 detail: a cable loop up the column, a turret ring, a warning plate, a second piston on the forearm
+    { const cl: V2[] = [[R3[0] - 40, BASE - 34], [R3[0] - 52, BASE - 96], [R3[0] - 46, BASE - 168], [R3[0] - 30, BASE - 222]];
+      for (let k = 0; k < 3; k++) part(cl[k]!, cl[k + 1]!, 3.6, 3.6, b2 + 0.09, DK, 0, false);
+      for (const q of cl.slice(1, 3)) part([q[0] - 2, q[1]], [q[0] + 12, q[1]], 2.6, 2.6, b2 + 0.1, M, 0, false); }
+    part([R3[0] - 34, BASE - 130], [R3[0] + 34, BASE - 130], 4, 4, b2 + 0.08, M, -1, false);
+    part([R3[0] - 12, BASE - 78], [R3[0] + 12, BASE - 78], 8, 8, b2 + 0.07, IV, -1, false);
+    part([R3[0] - 6, BASE - 78], [R3[0] + 6, BASE - 78], 1.6, 1.6, b2 + 0.07, DK, -1, false);
+    const [fa, fb] = off(ik.elbow, ik.wrist, 18);
+    part(lerp2(fa, fb, 0.15), lerp2(fa, fb, 0.5), 6, 6, b2 + 0.25, M, 0, false);
+    part(lerp2(fa, fb, 0.45), lerp2(fa, fb, 0.82), 2.6, 2.6, b2 + 0.25, DK, 0, false);
+    return { caps, joints, guides, split: [split1, split2] };
   }
 
   /** The pen: each drawn element in order; between them it travels. */
@@ -398,8 +438,9 @@ export default class SceneTowardAI extends PanelScene {
     const rb = this.robots(t);
     const S = (p: V2) => this.scr(t, p);
     const caps = rb.caps.map((c) => ({ ...c, a: S(c.a), b: S(c.b), ra: c.ra * cam.s, rb: c.rb * cam.s, k: (c.k ?? 3) * cam.s }));
-    this.bones.set(0, NBONES, caps);
-    (u.rbox!.value as THREE.Vector4).copy(boxOf(caps, 10));
+    const grp = [caps.slice(0, rb.split[0]), caps.slice(rb.split[0], rb.split[1]), caps.slice(rb.split[1])];
+    const slots: [number, number][] = [[G0, N0], [G1, N1], [G2, N2]];
+    grp.forEach((g, i) => { this.bones.set(slots[i]![0], slots[i]![1], g); (u.rbox!.value as THREE.Vector4[])[i]!.copy(boxOf(g, 10)); });
     this.pass.render(r, out);
 
     const L = this.L, D = this.dots;

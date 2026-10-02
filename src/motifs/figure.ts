@@ -10,7 +10,7 @@ export type P2 = [number, number];
 export interface Bone { a: P2; b: P2; ra: number; rb: number; k: number; mat: number }
 
 // materials (shaders/relief.ts MAT)
-const SKIN = 1, HORN = 2, EYE = 3, FUR = 4, CLOTH = 7, HAIR = 8, DARK = 9, PELT = 17, OCHRE = 18, EYE_H = 19;
+const SKIN = 1, HORN = 2, MOUTH = 12, EYE = 3, FUR = 4, CLOTH = 7, HAIR = 8, DARK = 9, PELT = 17, OCHRE = 18, EYE_H = 19;
 
 interface Params {
   thigh: number; shin: number; foot: number; armU: number; armF: number; hand: number;
@@ -177,6 +177,7 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
     push(add(l.ankle, dF, -0.012), l.toe, 0.024 * s, 0.017 * s, SKIN, 0.008);
     push(add(l.ankle, dF, -0.016), add(add(l.ankle, dF, -0.016), [0, -1], 0.008), 0.021 * s, 0.02 * s, SKIN, 0.006);   // the heel
     push(l.toe, add(l.toe, dF, 0.018), 0.013 * s, 0.01 * s, SKIN, 0.004);
+    if (human > 0.5) push(add(add(l.toe, dF, 0.016), [0, 1], 0.004), add(add(l.toe, dF, 0.02), [0, 1], 0.004), 0.005 * s, 0.004 * s, HORN, -1);   // the big toenail
     push(add(l.toe, [0, 1], 0.004), add(add(l.toe, dF, 0.012), [0, 1], 0.005), 0.0095 * s, 0.008 * s, SKIN, 0.003);  // the next toe
     // the ape's grasping big toe, set apart from the others
     if (q > 0.05) { const bt = add(l.ankle, dF, 0.035); push(bt, add(add(bt, dF, 0.03), [0, -1], 0.012), 0.012 * q * s, 0.009 * q * s, SKIN, 0.004); }
@@ -198,6 +199,8 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
       }
     }
     push(add(a.wr, side, 0.012), add(add(a.wr, side, 0.024), dH, 0.03), 0.009 * s, 0.007 * s, SKIN, 0.004);
+    // a plaited band round the near wrist (with the beads)
+    if (i === 0 && human > 0.01 && (o.look ?? LOOK_DEFAULT).beads) { const dA = unit(a.el, a.wr); push(add(a.wr, dA, -0.026), add(a.wr, dA, -0.012), 0.026 * s * human, 0.025 * s * human, CLOTH, -1); }
   };
   limbs(1, 0.92);
   // torso: pelvis, belly, rib cage, buttock; the shoulders' bulk
@@ -256,7 +259,11 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
     const bw = add(add(eyeP, browD, P.headR * 0.2), fwd, -P.headR * 0.12);
     push(bw, add(bw, fwd, P.headR * 0.3), P.headR * 0.075 * human, P.headR * 0.06 * human, HAIR, -1);
     const mo = add(add(head, fwd, P.headR * 0.98), down, P.headR * 0.42);
+    push(add(mo, down, P.headR * 0.05), add(add(mo, fwd, -P.headR * 0.18), down, P.headR * 0.03), P.headR * 0.07 * human, P.headR * 0.05 * human, MOUTH, -1);   // the lower lip
     push(mo, add(add(mo, fwd, -P.headR * 0.22), dN, P.headR * 0.02), P.headR * 0.045 * human, P.headR * 0.03 * human, DARK, -1);
+    // the navel (a decal on the belly)
+    const nv = add(add(pelvis, dT, 0.075), bk, -(P.rPelvis + P.rChest) * 0.5 * 0.9);
+    push(nv, add(nv, dT, -0.004), 0.0055 * human, 0.0045 * human, DARK, -1);
     if (look.beard) {
       const ch = add(add(head, fwd, P.headR * 0.6), down, P.headR * 0.84);
       push(add(add(head, down, P.headR * 0.6), fwd, -P.headR * 0.2), ch, P.headR * 0.28 * human, P.headR * 0.25 * human, HAIR, 0.006);

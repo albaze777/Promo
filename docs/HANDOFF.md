@@ -118,6 +118,28 @@ session; nothing here is an estimate unless it says so.
   - 07 end card: the same glows, breathing; some dust motes carry pigments. Wordmark, tagline and URL unchanged.
   - The opening black (the point) is left untouched on purpose.
 
+- Eighth round (detail on every model, after "each and every model should have details"):
+  - Shared body shading (`relief.ts`, used by the dinosaurs, the ape and people, the robots): every scale is a
+    small lit dome (a per-cell normal), speckled scales, transverse belly plates; creases where parts join
+    (`Body.ao`, the gap between the hard and the smooth union, only near the outline) are occluded and folded;
+    fine wrinkles across limbs; skin with pores and mottling; fur in locks with partings; horn with growth ridges;
+    eyes with iris fibres and a limbal ring (slit pupils on the scaled creatures); steel with hex bolts, grime in
+    the seams, scratches and a lit bevel; enamel with grimy seams, slotted screws, worn edges, stencilled codes
+    and dust; tyres with tread blocks and a sidewall; brass with verdigris; a cool fill light on the shadow side.
+  - Robots: a shoulder plate, a hose with brass clamps, chest vents and status lights, a cheek grille, knee caps,
+    heel spurs and a thumb (biped); an antenna, a headlamp, an exhaust and a screwed hatch (wheeled); a cable
+    loop up the column, a turret ring, a warning plate and a second forearm piston (arm).
+  - People: lower lip, navel, toenail, a plaited wristband (with the beads). Hand (03b): tendons, knuckle
+    wrinkles, a fine diamond skin texture, freckles, forearm hair. Cart: radial grain in the spokes, felloe
+    joints, a worn and dirty tread, an iron hub band with nails; an incised zigzag and a chip on the pot; bark
+    fissures and lichen; textured stones; a twisted rope. Pterosaurs: feet, eye glint, lit wing fibres, claws.
+  - Performance: SwiftShader runs every branch of the material chain on every pixel, so the cost of `bodyShade`
+    scales with its length and with the number of calls. `bodyCommon('scales' | 'organic' | 'mech')` compiles
+    only the materials a scene uses; the dino scene and the two painters each use one call (front body wins,
+    a flat stand-in under its anti-aliased edge); the robots are three groups with their own boxes. Measured
+    (4 sub-frames, warm, one process): dino 41.9 s ≈ 9.1–10.0 s (was 10.8–11.5), wheel 58.5 s ≈ 8.1–8.3 s
+    (was 7.9–8.0), robots 74 s ≈ 8.0–8.7 s (was 12.4–13.7).
+
 ## Not done / remaining
 
 1. **The current version has not been fully rendered.** At the pause, `out/segments_v2/` (gitignored, only

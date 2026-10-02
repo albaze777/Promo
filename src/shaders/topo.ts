@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { FSPass } from '../engine/gl';
 import { NB } from '../motifs/figure';
-import { BODY_COMMON_GLSL, bodyGLSL } from './relief';
+import { bodyCommon, bodyGLSL } from './relief';
 import { SPACE_GLSL, spaceDrift } from './space';
 import { CAM_END } from '../motifs/orbit';
 
@@ -124,7 +124,7 @@ export class TopoPass {
     uniform float time;
     ${TERRAIN_GLSL}
     ${SPACE_GLSL}
-    ${BODY_COMMON_GLSL}
+    ${bodyCommon('organic')}
     ${bodyGLSL('fg', 3 * NB)}
     float sdFig(vec2 p, int f) { return fgBody(p, f * ${NB}, ${NB}, fBox[f]).d; }
     ${HAND_GLSL}
@@ -168,7 +168,7 @@ export class TopoPass {
       float bodyK = max(handMix, figMix);
       float hd = 1e5;
       vec2 hcan = vec2(1e5);                                   // the pixel in the hand's canonical frame
-      Body fig; fig.d = 1e5; fig.mat = 1.0; fig.uv = vec2(0.0); fig.r = 1.0; fig.t = vec2(1.0, 0.0); fig.round = 0.0; fig.n = vec3(0.0, 0.0, 1.0);
+      Body fig; fig.d = 1e5; fig.mat = 1.0; fig.uv = vec2(0.0); fig.r = 1.0; fig.t = vec2(1.0, 0.0); fig.round = 0.0; fig.n = vec3(0.0, 0.0, 1.0); fig.p = vec2(0.0); fig.ao = 0.0;
       if (bodyK > 0.0) {
         float dH = 1e5, dF = 1e5;
         if (handMorph > 0.0) { vec2 hp = rot2(-handRot) * (px - handPos) / handScale; hp.y *= handFlip; dH = sdHand(hp) * handScale; hcan = hp; }
@@ -332,6 +332,38 @@ export class TopoPass {
         kn += exp(-dot(hcan - vec2(112.0, 72.0), hcan - vec2(112.0, 72.0)) / 190.0);
         kn += exp(-dot(hcan - vec2(84.0, -46.0), hcan - vec2(84.0, -46.0)) / 300.0);
         skin *= 1.0 + 0.3 * kn;
+        // tendons fanning from the wrist to each knuckle on the back of the hand: a lit ridge with a shadow beside it
+        float tend = 0.0, tendS = 0.0;
+        for (int j = 0; j < 4; j++) {
+          float yk = j == 0 ? -46.0 : j == 1 ? -10.0 : j == 2 ? 26.0 : 62.0;
+          float k = sat((hcan.x + 110.0) / 190.0);
+          float yl = mix(yk * 0.35, yk, k);
+          float dy = hcan.y - yl;
+          float m = smoothstep(-110.0, -60.0, hcan.x) * smoothstep(80.0, 50.0, hcan.x);
+          tend += exp(-dy * dy / 22.0) * m; tendS += exp(-(dy - 7.0) * (dy - 7.0) / 18.0) * m;
+        }
+        skin *= 1.0 + 0.32 * tend * hs - 0.22 * tendS;
+        // wrinkles over each knuckle: short lines across the finger, bunched where the skin folds
+        float kw = 0.0;
+        for (int j = 0; j < 4; j++) {
+          vec2 kc = j == 0 ? vec2(150.0, -4.0) : j == 1 ? vec2(138.0, 36.0) : j == 2 ? vec2(112.0, 72.0) : vec2(82.0, -46.0);
+          vec2 fd = j == 0 ? normalize(vec2(1.0, 0.1)) : j == 1 ? normalize(vec2(1.0, 0.2)) : j == 2 ? normalize(vec2(1.0, 0.35)) : vec2(1.0, -0.05);
+          vec2 q = hcan - kc;
+          float a = dot(q, fd), b = dot(q, vec2(-fd.y, fd.x));
+          for (int k = 0; k < 3; k++) {
+            float len = 13.0 - abs(float(k) - 1.0) * 4.0;
+            kw += pxLine((a + 6.0 - float(k) * 5.0 - 1.8 * sin(b * 0.3 + float(j))) * handScale, 1.4) * smoothstep(len, len - 4.0, abs(b));
+          }
+        }
+        skin *= 1.0 - 0.7 * sat(kw);
+        // the skin's fine diamond texture, faint pores, a few freckles; fine hair on the forearm
+        float dia = pxLine((abs(fract((hcan.x + hcan.y * 0.8) / 7.0) - 0.5) * 7.0) * handScale * 0.5, 0.8) + pxLine((abs(fract((hcan.x - hcan.y * 0.8) / 9.0) - 0.5) * 9.0) * handScale * 0.5, 0.8);
+        skin *= 1.0 - 0.13 * sat(dia) * smoothstep(-40.0, -12.0, hd);
+        vec2 fc = floor(hcan / 18.0);
+        float frk = step(0.975, hash12(fc + 7.0)) * smoothstep(2.6, 1.2, length(hcan - (fc + 0.5 + (hash22(fc) - 0.5) * 0.6) * 18.0));
+        skin = mix(skin, skin * vec3(0.7, 0.55, 0.45), frk * 0.6);
+        float hair = smoothstep(0.82, 0.92, vnoise(vec2(hcan.x / 9.0 + hcan.y / 30.0, hcan.y / 1.1))) * smoothstep(-120.0, -200.0, hcan.x);
+        skin = mix(skin, skin * 0.55, hair * 0.6);
         // creases across the index finger's joints
         float cr = 0.0;
         for (int j = 0; j < 2; j++) {
