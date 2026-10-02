@@ -10,7 +10,7 @@ export type P2 = [number, number];
 export interface Bone { a: P2; b: P2; ra: number; rb: number; k: number; mat: number }
 
 // materials (shaders/relief.ts MAT)
-const SKIN = 1, EYE = 3, FUR = 4, CLOTH = 7, HAIR = 8;
+const SKIN = 1, HORN = 2, EYE = 3, FUR = 4, CLOTH = 7, HAIR = 8, DARK = 9, PELT = 17, OCHRE = 18, EYE_H = 19;
 
 interface Params {
   thigh: number; shin: number; foot: number; armU: number; armF: number; hand: number;
@@ -77,7 +77,26 @@ export interface PoseOpts {
   /** arm overrides: [shoulder angle from straight down (forward +), elbow flex] */
   armNear?: [number, number];
   armFar?: [number, number];
+  /** how the upright form dresses (ignored on the ape) */
+  look?: Look;
 }
+
+/** What a person wears and how they look: these only appear as the figure becomes human. */
+export interface Look {
+  /** a beard along the jaw */
+  beard?: boolean;
+  /** hair down to the shoulders (else a short cap) */
+  long?: boolean;
+  /** the loincloth is a spotted pelt (else leather in the accent colour) */
+  pelt?: boolean;
+  /** a pelt strap across the chest */
+  strap?: boolean;
+  /** a necklace of bone beads */
+  beads?: boolean;
+  /** red-ochre paint: a stripe on the cheek */
+  paint?: boolean;
+}
+export const LOOK_DEFAULT: Look = { paint: true };
 
 export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {}): Pose {
   const P = params(m);
@@ -175,7 +194,10 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
   push(add(pelvis, dT, P.torso * 0.45), chest, (P.rPelvis + P.rChest) * 0.5, P.rChest, FUR, 0.03);
   push(add(add(pelvis, bk, -0.035), dT, -0.01), add(add(pelvis, bk, -0.035), dT, -0.009), 0.055, 0.055, FUR, 0.02);
   // loincloth on the upright form
-  if (human > 0.01) push(add(pelvis, dT, 0.01), add(add(pelvis, dT, -0.09), bk, 0.012), P.rPelvis * 1.05 * human, P.rPelvis * 0.8 * human, CLOTH, 0.006);
+  const look = o.look ?? LOOK_DEFAULT;
+  if (human > 0.01) push(add(pelvis, dT, 0.01), add(add(pelvis, dT, -0.09), bk, 0.012), P.rPelvis * 1.05 * human, P.rPelvis * 0.8 * human, look.pelt ? PELT : CLOTH, 0.006);
+  // a strap across the chest, from the far shoulder to the near hip (a decal: it does not change the silhouette)
+  if (human > 0.01 && look.strap) push(add(add(chest, bk, 0.03), dT, -0.02), add(add(pelvis, bk, -0.045), dT, 0.06), 0.013 * human, 0.012 * human, PELT, -1);
   // neck and head: cranium, face and muzzle, jaw, brow, nose, ear, eye, hair
   push(chest, neckTop, 0.04, 0.034, FUR, 0.015);
   const dN: P2 = [Math.sin(nAng), Math.cos(nAng)];
@@ -193,11 +215,27 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
   const earP = add(head, [-fwd[0], -fwd[1]], P.headR * 0.15);
   push(earP, add(earP, down, P.headR * 0.12), P.headR * 0.2, P.headR * 0.16, SKIN, 0.003);
   const eyeP = add(add(head, fwd, P.headR * 0.72), browD, P.headR * 0.12);
-  push(eyeP, add(eyeP, fwd, 1e-4), P.headR * 0.12, P.headR * 0.12, EYE, -1);
+  push(eyeP, add(eyeP, fwd, 1e-4), P.headR * 0.12, P.headR * 0.12, human > 0.5 ? EYE_H : EYE, -1);
   // hair: a cap over the crown and the back of the head, clear of the face
-  const crown = add(add(head, dN, P.headR * 0.32), fwd, -P.headR * 0.38), nape = add(add(head, dN, -P.headR * 0.05), fwd, -P.headR * 0.62);
-  if (human > 0.01) push(crown, nape, P.headR * 0.72 * human, P.headR * 0.55 * human, HAIR, 0.008);
+  const crown = add(add(head, dN, P.headR * 0.2), fwd, -P.headR * 0.2), nape = add(add(head, dN, -P.headR * 0.22), fwd, -P.headR * 0.42);
+  if (human > 0.01) push(crown, nape, P.headR * 0.93 * human, P.headR * 0.7 * human, HAIR, 0.006);
+  if (human > 0.01 && look.long) push(nape, add(add(nape, dN, -P.headR * 1.25), fwd, -P.headR * 0.12), P.headR * 0.5 * human, P.headR * 0.32 * human, HAIR, 0.006);
+  // face: a brow of hair above the eye, the mouth's crease, a beard along the jaw
+  if (human > 0.01) {
+    const bw = add(add(eyeP, browD, P.headR * 0.2), fwd, -P.headR * 0.12);
+    push(bw, add(bw, fwd, P.headR * 0.3), P.headR * 0.075 * human, P.headR * 0.06 * human, HAIR, -1);
+    const mo = add(add(head, fwd, P.headR * 0.98), down, P.headR * 0.42);
+    push(mo, add(add(mo, fwd, -P.headR * 0.22), dN, P.headR * 0.02), P.headR * 0.045 * human, P.headR * 0.03 * human, DARK, -1);
+    if (look.beard) {
+      const ch = add(add(head, fwd, P.headR * 0.6), down, P.headR * 0.84);
+      push(add(add(head, down, P.headR * 0.6), fwd, -P.headR * 0.2), ch, P.headR * 0.28 * human, P.headR * 0.25 * human, HAIR, 0.006);
+    }
+    if (look.paint) { const ck = add(add(head, fwd, P.headR * 0.55), down, P.headR * 0.12); push(ck, add(ck, fwd, P.headR * 0.4), P.headR * 0.07 * human, P.headR * 0.06 * human, OCHRE, -1); }
+    // a necklace: beads from the front of the neck down to the breastbone, along the front of the chest
+    if (look.beads) for (let b = 0; b < 4; b++) { const k = b / 3, bp = add(add(chest, dT, lerp(0.01, -0.065, k)), [-bk[0], -bk[1]], lerp(0.045, 0.078, k)); push(bp, add(bp, dT, 1e-3), 0.01 * human, 0.01 * human, HORN, -1); }
+  }
   limbs(0, 1);
+
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const b of bones) {
     const r = Math.max(b.ra, b.rb);
@@ -209,6 +247,6 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
 
 /** Reach direction of the near arm (from straight down, forward positive): 30° below horizontal. */
 export const REACH_ANG = Math.PI / 2 - Math.PI / 6;
-export const NB = 40;
+export const NB = 52;
 
 export const _ = { smoothstep };

@@ -1,7 +1,8 @@
 // 05a THE CANCELLED ARTWORK — the dino era (a panel scene, hosted by the gallery).
 // A prehistoric dusk: contour-hatched ridges and a smoking volcano, a ground of perspective contours, ferns
 // drawn as hairlines. A long-necked herbivore grazes; a predator stalks in from the left and lunges. Both are
-// detailed capsule bodies (skull, jaw, teeth, eyes, nostrils, toes and claws, scaled skin with a paler belly).
+// detailed capsule bodies (skull, jaw, teeth, eyes, nostrils, toes and claws), each with its own colouring:
+// counter-shaded scaled skin with bands and blotches (an olive herbivore; a dark, rust-flanked predator).
 // The red point has hung in the sky like a star the whole time. It heats from red to white and falls as a
 // real meteor: a white-hot head, a yellow-orange fire tail, a smoke trail that lingers, shedding sparks. It
 // strikes beyond the ridge: a flash, a fireball rising behind the mountains, debris thrown in burning arcs,
@@ -20,7 +21,7 @@ const T0 = CUE.dinoIn, T_FULL = CUE.dino, STALK = CUE.stalk, LUNGE = CUE.lunge, 
 const H0 = 640;                       // horizon
 const I: V2 = [372, 626];             // impact point (on the horizon, behind the ridge)
 const STAR: V2 = [1430, 176];         // where the red point hangs while the herbivore grazes
-const NS = 64, NR = 88;               // parts per creature
+const NS = 80, NR = 120;               // parts per creature
 const NFIRE = 16, NSMOKE = 24;
 
 /** Camera inside the panel: a slow push and a drift to the left (parallax by depth). */
@@ -42,6 +43,7 @@ const heatAt = (t: number) => smoothstep(METEOR, METEOR + 0.55, t) * (t < IMPACT
 const P = (a: V2, b: V2, ra: number, rb: number, mat: number = MAT.SCALE, k = 10): Part => ({ a, b, ra, rb, mat, k });
 const add = (p: V2, d: V2, s: number): V2 => [p[0] + d[0] * s, p[1] + d[1] * s];
 const dirOf = (a: number): V2 => [Math.cos(a), Math.sin(a)];
+const lerp2 = (a: V2, b: V2, k: number): V2 => [lerp(a[0], b[0], k), lerp(a[1], b[1], k)];
 
 export default class SceneDinoEra extends PanelScene {
   parts = new PartArray(NS + NR);
@@ -66,6 +68,7 @@ export default class SceneDinoEra extends PanelScene {
      *  a pixel only evaluates the groups near it. The groups are smooth-unioned and their normals blended. */
     Body creature(vec2 px, int g0) {
       Body R; R.d = 1e5; R.mat = 0.0; R.uv = vec2(0.0); R.r = 1.0; R.t = vec2(1.0, 0.0); R.round = 0.0; R.n = vec3(0.0, 0.0, 1.0);
+      R.p = vec2(0.0);
       vec3 nacc = vec3(0.0, 0.0, 1e-4);
       for (int g = 0; g < 4; g++) {
         vec2 rg = gRange[g0 + g];
@@ -77,6 +80,7 @@ export default class SceneDinoEra extends PanelScene {
         R.d = dd;
       }
       R.n = normalize(nacc);
+      R.p = px - crA[int(gRange[g0].x)].xy;          // one pattern frame for the whole creature
       return R;
     }
     vec2 cam(vec2 p, float depth) { return vec2(960.0, 640.0) + (p - vec2(960.0, 640.0)) / camS - vec2(camX * depth / camS, 0.0); }
@@ -242,8 +246,10 @@ export default class SceneDinoEra extends PanelScene {
       vec3 lineC = mix(C_BONE, C_WARMBONE, 0.5) * 0.55;
       Body b1 = creature(px, 0);
       Body b2 = creature(px, 4);
-      c = bodyShade(c, b1, L, Lc, vec3(0.105, 0.088, 0.06), vec3(0.24, 0.2, 0.14), 0.15, 1.0, lineC, 7.5, 1.0);
-      c = bodyShade(c, b2, L, Lc, vec3(0.072, 0.05, 0.034), vec3(0.22, 0.16, 0.1), 1.0, 1.0, lineC, 7.5, 1.0);
+      // the herbivore: a dark olive back, sage flanks with blotches, a pale belly
+      c = bodyShade(c, b1, L, Lc, vec3(0.06, 0.07, 0.04), vec3(0.36, 0.32, 0.22), vec3(0.15, 0.165, 0.095), 0.55, 1.0, lineC, 7.5, 1.0);
+      // the predator: a near-black back, rust flanks with tiger bands, a cream belly and throat
+      c = bodyShade(c, b2, L, Lc, vec3(0.04, 0.03, 0.025), vec3(0.4, 0.3, 0.17), vec3(0.24, 0.085, 0.03), 1.0, 1.0, lineC, 7.5, 1.0);
       // ---- the shockwave: the film's hairline ring, now a pressure front ----
       if (ti > 0.0) {
         float R = 1700.0 * (1.0 - pow(2.0, -10.0 * ti / 2.6));
@@ -322,8 +328,8 @@ export default class SceneDinoEra extends PanelScene {
       const knee: V2 = [hip[0] + 8 + shift, hip[1] + (G - hip[1]) * 0.5];
       const ankle: V2 = [hip[0] + shift * 1.5 - 4, G - 36];
       const sole: V2 = [ankle[0] - 8, G - 8 - far * 4];
-      push(P(hip, knee, 48 * s, 36 * s, MAT.SCALE, 12), P(knee, ankle, 34 * s, 29 * s, MAT.SCALE, 8), P(ankle, sole, 30 * s, 35 * s, MAT.SCALE, 6));
-      for (let c = 0; c < 3; c++) { const b: V2 = [sole[0] - 30 + c * 13, G - 9 - far * 4]; push(P(b, [b[0] - 9, G - 3 - far * 4], 5 * s, 2 * s, MAT.HORN, 0)); }
+      push(P(hip, knee, 48 * s, 36 * s, MAT.SCALE, 12), P(knee, ankle, 34 * s, 29 * s, MAT.SCALE, 8), P(ankle, sole, 30 * s, 32 * s, MAT.SCALE, 5));
+      for (let c = 0; c < 3; c++) { const b: V2 = [sole[0] - 34 + c * 15, G - 10 - far * 4]; push(P(b, [b[0] - 10, G - 4 - far * 4], 7 * s, 2.5 * s, MAT.HORN, 0)); }
     }
     grp = 1;
     push(P([R[0] + 150, R[1] + 4], [R[0] - 130, R[1] - 14], 104, 116, MAT.SCALE, 20));
@@ -339,6 +345,14 @@ export default class SceneDinoEra extends PanelScene {
     for (let i = 0; i <= 10; i++) { const u = i / 10, v = 1 - u; pts.push([v * v * N0[0] + 2 * u * v * ctrl[0] + u * u * Hd[0], v * v * N0[1] + 2 * u * v * ctrl[1] + u * u * Hd[1]]); }
     grp = 2;
     for (let i = 0; i < 10; i++) push(P(pts[i]!, pts[i + 1]!, lerp(60, 23, i / 10), lerp(60, 23, (i + 1) / 10), MAT.SCALE, 10));
+    // a row of low spines along the top of the neck
+    for (let i = 1; i < 9; i++) {
+      const p = pts[i]!, q = pts[i + 1]!, L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+      let nT: V2 = [(q[1] - p[1]) / L, -(q[0] - p[0]) / L];
+      if (nT[1] > 0 || (Math.abs(nT[1]) < 0.2 && nT[0] > 0)) nT = [-nT[0], -nT[1]];
+      const b = add(p, nT, lerp(60, 23, i / 10) - 3);
+      push(P(b, add(b, nT, 5), 7 - i * 0.4, 2.5, MAT.SCALE, 2));
+    }
     // head: skull, tapering snout, a jaw that chews, eye and nostril
     const ha = Math.atan2(Hd[1] - pts[9]![1], Hd[0] - pts[9]![0]) - 0.6;
     const d = dirOf(ha), n: V2 = [d[1], -d[0]];            // n: the underside of a left-facing head
@@ -349,6 +363,7 @@ export default class SceneDinoEra extends PanelScene {
     push(P(j0, add(j0, jd, 64), 13, 8, MAT.SCALE, 6));
     push(P(add(add(Hd, d, 20), n, -9), add(add(Hd, d, 20), n, -9), 5.5, 5.5, MAT.EYE, -1));
     push(P(add(add(Hd, d, 74), n, -7), add(add(Hd, d, 74), n, -7), 3, 3, MAT.DARK, -1));
+    push(P(add(add(Hd, d, 40), n, 8), add(add(Hd, d, 82), n, 7), 1.8, 1.4, MAT.MOUTH, -1));
     // tail
     const tail: V2[] = [];
     for (let i = 0; i <= 12; i++) {
@@ -358,10 +373,21 @@ export default class SceneDinoEra extends PanelScene {
     }
     grp = 3;
     for (let i = 0; i < 12; i++) push(P(tail[i]!, tail[i + 1]!, lerp(76, 4, i / 12), lerp(76, 4, (i + 1) / 12), MAT.SCALE, 12));
+    for (let i = 0; i < 7; i++) {
+      const p = tail[i]!, q = tail[i + 1]!, L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+      let nT: V2 = [(q[1] - p[1]) / L, -(q[0] - p[0]) / L];
+      if (nT[1] > 0) nT = [-nT[0], -nT[1]];
+      const b = add(p, nT, lerp(76, 4, i / 12) - 3);
+      push(P(b, add(b, nT, 5), 7.5 - i * 0.6, 2.5, MAT.SCALE, 2));
+    }
+    // and along the back
+    grp = 1;
+    for (let k = 0; k < 6; k++) { const b: V2 = [R[0] - 150 + k * 60, R[1] - 122 + Math.abs(k - 2.5) * 4]; push(P(b, [b[0], b[1] - 6], 8, 3, MAT.SCALE, 2)); }
     return out;
   }
 
-  // ---- the predator: two legs, a heavy skull with teeth, small two-fingered arms, a balancing tail ----
+  // ---- the predator: a big deep skull with a row of teeth, horns over the eyes, a heavy S-curved neck, a deep
+  // chest, massive thighs, tiny two-fingered arms, a row of osteoderms down the back and a balancing tail ----
   rex(t: number): Part[] {
     if (t < STALK - 0.1) return [];
     const stalkU = clamp((t - STALK) / (LUNGE - STALK));
@@ -375,6 +401,7 @@ export default class SceneDinoEra extends PanelScene {
     const Pv: V2 = [x, 700];
     const fwd = dirOf(lean), up: V2 = [fwd[1], -fwd[0]];
     const chest = add(Pv, fwd, 125);
+    const breath = 2.5 * Math.sin(t * 2.2);
     const legs: Part[][] = [];
     let low = -Infinity;
     for (let i = 0; i < 2; i++) {
@@ -386,13 +413,17 @@ export default class SceneDinoEra extends PanelScene {
       const ankle: V2 = [knee[0] + Math.sin(b2) * 118, knee[1] + Math.cos(b2) * 118];
       const b3 = b2 + 0.85 + 0.3 * lift;
       const foot: V2 = [ankle[0] + Math.sin(b3) * 62, ankle[1] + Math.cos(b3) * 62];
-      const L: Part[] = [P([Pv[0], Pv[1] + 10], knee, 56 * s, 34 * s, MAT.SCALE, 14), P(knee, ankle, 30 * s, 18 * s, MAT.SCALE, 8), P(ankle, foot, 18 * s, 13 * s, MAT.SCALE, 6)];
+      const L: Part[] = [
+        P([Pv[0], Pv[1] + 10], knee, 66 * s, 36 * s, MAT.SCALE, 14),                                       // the drumstick
+        P([Pv[0] - 26, Pv[1] + 24], add(lerp2(Pv, knee, 0.62), [-1, 0], 16), 50 * s, 28 * s, MAT.SCALE, 16),  // its rear muscle
+        P(knee, ankle, 32 * s, 18 * s, MAT.SCALE, 8), P(ankle, foot, 19 * s, 13 * s, MAT.SCALE, 6),
+      ];
       for (let tI = 0; tI < 3; tI++) {
         const ta = -0.25 + tI * 0.2 + 0.3 * lift;
         const m: V2 = [foot[0] + Math.cos(ta) * 22, foot[1] + Math.sin(ta) * 8 + 4];
         const tip: V2 = [m[0] + Math.cos(ta) * 18, m[1] + 3];
-        L.push(P(foot, m, 10 * s, 8 * s, MAT.SCALE, 4), P(m, tip, 8 * s, 6 * s, MAT.SCALE, 3), P(tip, [tip[0] + 11, tip[1] + 6], 5 * s, 1.2, MAT.HORN, 0));
-        low = Math.max(low, tip[1] + 6);
+        L.push(P(foot, m, 10 * s, 8 * s, MAT.SCALE, 4), P(m, tip, 8 * s, 6 * s, MAT.SCALE, 3), P(tip, [tip[0] + 12, tip[1] + 7], 5.5 * s, 1.2, MAT.HORN, 0));
+        low = Math.max(low, tip[1] + 7);
       }
       low = Math.max(low, foot[1] + 12);
       legs.push(L);
@@ -402,59 +433,85 @@ export default class SceneDinoEra extends PanelScene {
     const Dp = (b: Part): Part => ({ ...b, a: D(b.a), b: D(b.b) });
     const out: Part[] = [];
     let grp = 0;
-    const push = (...ps: Part[]) => { for (const q of ps) out.push({ ...q, g: grp }); };
-    push(...legs[1]!.map(Dp));
+    const push = (...ps: Part[]) => { for (const q of ps) out.push(Dp({ ...q, g: grp })); };
+    push(...legs[1]!);
+    // torso: hips, a deep chest and belly that breathe
     grp = 1;
-    push(Dp(P(Pv, [Pv[0] + 0.5, Pv[1]], 58, 58, MAT.SCALE, 20)));
-    push(Dp(P(Pv, chest, 60, 66, MAT.SCALE, 20)));
-    push(Dp(P(add(add(Pv, fwd, 60), up, -34), add(add(Pv, fwd, 61), up, -34), 52, 52, MAT.SCALE, 25)));
-    // neck and skull
+    push(P(Pv, [Pv[0] + 0.5, Pv[1]], 60, 60, MAT.SCALE, 20));
+    push(P(Pv, chest, 62, 70 + breath, MAT.SCALE, 20));
+    push(P(add(add(Pv, fwd, 20), up, -30), add(add(chest, up, -36), fwd, -6), 50, 60 + breath, MAT.SCALE, 26));
+    push(P(add(chest, fwd, 8), add(chest, fwd, 9), 68 + breath, 68 + breath, MAT.SCALE, 24));
+    // neck: a heavy S-curve
     const nAng = lean - 0.75 - 0.5 * look;
-    const neckTop = add(chest, dirOf(nAng), 72);
-    push(Dp(P(chest, add(chest, dirOf(nAng), 36), 52, 45, MAT.SCALE, 12)), Dp(P(add(chest, dirOf(nAng), 36), neckTop, 45, 38, MAT.SCALE, 12)));
+    const nMid = add(add(chest, dirOf(nAng), 42), up, 6);
+    const neckTop = add(chest, dirOf(nAng), 84);
+    push(P(chest, nMid, 60, 52, MAT.SCALE, 14), P(nMid, neckTop, 52, 44, MAT.SCALE, 14));
+    // the skull, in head coordinates: s along the head, u across it (positive down)
     const hAng = lerp(lerp(0.3, 0.06, lungeU), -0.85, look);
-    const dH = dirOf(hAng), down: V2 = [-dH[1], dH[0]], upH: V2 = [dH[1], -dH[0]];
-    const snoutR = (s: number) => s < 58 ? lerp(42, 36, s / 58) : lerp(34, 21, (s - 58) / 80);
+    const dH = dirOf(hAng), down: V2 = [-dH[1], dH[0]];
+    const H = (s: number, u: number): V2 => add(add(neckTop, dH, s), down, u);
     grp = 2;
-    push(Dp(P(neckTop, add(neckTop, dH, 58), 42, 36, MAT.SCALE, 10)), Dp(P(add(neckTop, dH, 56), add(neckTop, dH, 138), 34, 21, MAT.SCALE, 8)));
-    push(Dp(P(add(add(neckTop, dH, 22), upH, 28), add(add(neckTop, dH, 50), upH, 24), 13, 10, MAT.SCALE, 6)));       // brow ridge
-    push(Dp(P(add(add(neckTop, dH, 42), upH, 13), add(add(neckTop, dH, 42), upH, 13), 7, 7, MAT.EYE, -1)));
-    push(Dp(P(add(add(neckTop, dH, 126), upH, 10), add(add(neckTop, dH, 126), upH, 10), 3.5, 3.5, MAT.DARK, -1)));
-    // the jaw opens in the lunge and at the sky; the mouth's inside, then the teeth
+    push(P(H(26, -2), H(27, -2), 50, 50, MAT.SCALE, 14));                         // cranium and jaw muscles
+    push(P(H(30, -4), H(120, -4), 44, 32, MAT.SCALE, 10));                       // upper skull
+    push(P(H(116, -2), H(184, 0), 31, 21, MAT.SCALE, 8));                        // snout
+    push(P(H(60, -20), H(172, -14), 22, 12, MAT.SCALE, 8));                      // the nasal ridge (a flat top)
+    push(P(H(46, -40), H(47, -40), 10, 10, MAT.SCALE, 5));                       // a boss behind the eye
+    push(P(H(68, -40), H(86, -46), 9, 4, MAT.SCALE, 4));                         // a horn in front of it
+    push(P(H(56, -22), H(57, -22), 11, 11, MAT.DARK, -1));                       // the deep-set eye: its socket,
+    push(P(H(57, -22), H(58, -22), 6.5, 6.5, MAT.EYE, -1));                      // the amber eye
+    push(P(H(166, -14), H(176, -12), 4.5, 3, MAT.DARK, -1));                     // nostril
+    // the jaw opens in the lunge and at the sky; inside, the mouth; the teeth hang below the lip line
     const jaw = 0.08 + 0.5 * Math.sin(Math.PI * clamp((t - LUNGE - 0.1) / 0.6)) + 0.35 * look * (0.6 + 0.4 * Math.sin(t * 9));
-    const jA = hAng + jaw, dJ = dirOf(jA), upJ: V2 = [dJ[1], -dJ[0]];
-    const j0 = add(neckTop, dirOf(hAng + 1.2), 18);
-    push(Dp(P(j0, add(j0, dJ, 120), 24, 12, MAT.SCALE, 6)));
+    const j0 = H(20, 26);
+    const dJ = dirOf(hAng + jaw), upJ: V2 = [dJ[1], -dJ[0]];
+    const J = (s: number, u: number): V2 => add(add(j0, dJ, s), upJ, -u);
+    push(P(J(0, 0), J(160, 0), 32, 17, MAT.SCALE, 8));
+    push(P(J(16, 4), J(17, 4), 34, 34, MAT.SCALE, 12));                          // the jaw's muscle
+    push(P(add(neckTop, down, 38), J(76, 10), 30, 18, MAT.SCALE, 16));            // the throat
     const dM = dirOf(hAng + jaw * 0.5);
-    push(Dp(P(add(j0, dM, 14), add(j0, dM, 104), 4, Math.max(3, 100 * Math.sin(jaw * 0.5) * 0.85), MAT.DARK, 0)));
-    if (jaw > 0.14) {
-      for (let k = 0; k < 6; k++) { const s = 66 + k * 13, b = add(add(neckTop, dH, s), down, snoutR(s) - 3); push(Dp(P(b, add(b, down, 12 - k), 3.6, 0.8, MAT.HORN, 0))); }
-      for (let k = 0; k < 5; k++) { const s = 46 + k * 14, b = add(add(j0, dJ, s), upJ, lerp(24, 12, s / 120) - 3); push(Dp(P(b, add(b, upJ, 10 - k), 3.2, 0.8, MAT.HORN, 0))); }
+    push(P(add(j0, dM, 14), add(j0, dM, 152), 4, Math.max(3, 150 * Math.sin(jaw * 0.5) * 0.8), MAT.MOUTH, 0));
+    const edge = (s: number) => s < 118 ? -4 + lerp(44, 32, clamp((s - 30) / 90)) : -1 + lerp(31, 21, clamp((s - 116) / 68));
+    push(P(H(40, edge(40) - 2), H(178, edge(178) - 2), 2.4, 1.8, MAT.MOUTH, -1));    // the lip line
+    for (let k = 0; k < 8; k++) {
+      const s = 62 + k * 16, b = H(s, edge(s) - 5), tip = add(b, down, 15 - k * 0.8);
+      push(P(b, tip, 4.2, 0.9, MAT.HORN, 0), P(b, tip, 4.2, 0.9, MAT.HORN, -1));
     }
-    grp = 1;
+    if (jaw > 0.14) for (let k = 0; k < 6; k++) { const s = 50 + k * 17, b = J(s, -(lerp(32, 17, s / 160) - 4)); push(P(b, add(b, upJ, 12 - k), 3.6, 0.8, MAT.HORN, 0)); }
     // arms: small, two fingers with claws
-    const sh = add(add(chest, fwd, 18), up, -34);
-    const el: V2 = [sh[0] + 30, sh[1] + 26], wr: V2 = [sh[0] + 48, sh[1] + 16 + 4 * Math.sin(t * 3)];
+    grp = 1;
+    const sh = add(add(chest, fwd, 22), up, -40);
+    const el: V2 = [sh[0] + 32, sh[1] + 28], wr: V2 = [sh[0] + 52, sh[1] + 18 + 4 * Math.sin(t * 3)];
     for (const side of [0, 1]) {
       const o: V2 = [side * -8, side * -4];
       const S = (p: V2): V2 => [p[0] + o[0], p[1] + o[1]];
-      push(Dp(P(S(sh), S(el), 13, 10, MAT.SCALE, 6)), Dp(P(S(el), S(wr), 10, 7, MAT.SCALE, 4)));
-      for (let fI = 0; fI < 2; fI++) { const ft: V2 = [wr[0] + 14 + o[0], wr[1] + 4 + fI * 7 + o[1]]; push(Dp(P(S(wr), ft, 5, 3, MAT.SCALE, 2)), Dp(P(ft, [ft[0] + 5, ft[1] + 6], 2.6, 0.8, MAT.HORN, 0))); }
+      push(P(S(sh), S(el), 15, 11, MAT.SCALE, 6), P(S(el), S(wr), 11, 8, MAT.SCALE, 4));
+      for (let fI = 0; fI < 2; fI++) { const ft: V2 = [wr[0] + 15 + o[0], wr[1] + 4 + fI * 8 + o[1]]; push(P(S(wr), ft, 5.5, 3.2, MAT.SCALE, 2), P(ft, [ft[0] + 6, ft[1] + 7], 3, 0.8, MAT.HORN, 0)); }
     }
-    // dorsal scutes along the back
-    for (let k = 0; k < 6; k++) { const b = add(add(Pv, fwd, 120 - k * 30), up, 58 - Math.abs(k - 2) * 3); push(Dp(P(b, add(b, up, 6), 8, 4, MAT.SCALE, 0))); }
-    // tail
+    // osteoderms down the neck and back
+    for (let k = 0; k < 9; k++) {
+      const b = k < 3 ? add(lerp2(neckTop, chest, 0.2 + k * 0.3), dirOf(nAng - Math.PI / 2), 44 + k * 4) : add(add(Pv, fwd, 140 - (k - 3) * 30), up, 62 - Math.abs(k - 5) * 2);
+      push(P(b, add(b, k < 3 ? dirOf(nAng - Math.PI / 2) : up, 5), 7.5, 4, MAT.SCALE, 3));
+    }
+    // tail: thick at the root, with a row of osteoderms along its top
     const tail: V2[] = [];
     for (let i = 0; i <= 12; i++) {
       const u = i / 12;
       const sw = Math.sin(phi * 0.5 + u * 2) * 22 * u * amp;
       const ta = Math.PI + lean * 0.9 - 0.1;
-      tail.push(D([Pv[0] + Math.cos(ta) * 470 * u + 20, Pv[1] - 6 + Math.sin(ta) * 470 * u + sw + 30 * u * u]));
+      tail.push([Pv[0] + Math.cos(ta) * 480 * u + 20, Pv[1] - 6 + Math.sin(ta) * 480 * u + sw + 30 * u * u]);
     }
     grp = 3;
-    for (let i = 0; i < 12; i++) push(P(tail[i]!, tail[i + 1]!, lerp(56, 4, i / 12), lerp(56, 4, (i + 1) / 12), MAT.SCALE, 12));
+    const tR = (u: number) => lerp(62, 4, u) * (1 - 0.25 * u * (1 - u));
+    for (let i = 0; i < 12; i++) push(P(tail[i]!, tail[i + 1]!, tR(i / 12), tR((i + 1) / 12), MAT.SCALE, 12));
+    for (let i = 1; i < 7; i++) {
+      const p = tail[i]!, q = tail[i + 1]!, L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+      const nT: V2 = [(q[1] - p[1]) / L, -(q[0] - p[0]) / L];
+      const n2: V2 = nT[1] > 0 ? [-nT[0], -nT[1]] : nT;               // the top side
+      const b = add(p, n2, tR(i / 12) - 3);
+      push(P(b, add(b, n2, 4), 6.5 - i * 0.5, 3, MAT.SCALE, 3));
+    }
     grp = 0;
-    push(...legs[0]!.map(Dp));
+    push(...legs[0]!);
     return out;
   }
 

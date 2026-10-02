@@ -60,6 +60,21 @@ session; nothing here is an estimate unless it says so.
   - Performance fixes in the body shader (each body walks only its own part range; creatures split into
     boxed groups; no panel mips while a panel fills the screen).
 
+- Third round (colour and detail, after "the T-rex looks bad"):
+  - `relief.ts` `bodyShade` takes a third colour (back / belly / accent). Scaled skin is counter-shaded (dark back,
+    accent flanks, pale belly) with bands and blotches laid out in one frame per body (`Body.p`), so they run
+    across the joins between capsules. New materials: MOUTH, PAINT/PAINT2 (enamel in the 2nd/3rd colour), BRASS,
+    LAMP, PELT, OCHRE, EYE_H (a human eye); RUBBER now has its own shading (it used to fall through to glass).
+    Fixed: short "sphere" capsules and capsule end caps collapsed the texture coordinate into horizontal streaks.
+  - T-rex rebuilt: deep skull with nasal ridge, horn and boss over a deep-set eye, a row of teeth that shows with the
+    mouth shut, a lip line, jaw muscle and throat, S-curved neck, deep breathing chest, thigh muscle, osteoderms
+    down the back and tail. Near-black back, rust flanks with bands, cream belly. Sauropod: olive/sage with
+    blotches, dorsal spines, toenails. Ape: near-black fur with auburn tips and a wispy silhouette, a grey-tan face.
+    People (`figure.ts` `Look`): hair cap with a ragged hairline, eyebrows, mouth, beard, pelt loincloths, bead
+    necklace, red-ochre cheek stripe; each person has their own skin, hair and garment colours. Robots: ivory
+    biped, ochre wheeled one with an ivory dome, industrial-ochre arm with hazard bands, amber lamp eyes.
+  - Measured cost (4 sub-frames, warm, this container): dino full-screen frames ≈ 7.8–8.1 s, up from ≈ 5.9 s.
+
 ## Not done / remaining
 
 1. **The current version has not been fully rendered.** At the pause, `out/segments_v2/` (gitignored, only

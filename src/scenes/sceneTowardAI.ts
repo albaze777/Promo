@@ -16,7 +16,7 @@ import { clamp, ease, keys, lerp, smoothstep, TAU, catmull, polyLengths, type V2
 
 const T0 = CUE.aiIn, GEARS = CUE.gears, CIRC = CUE.circuits, ROBOTS = CUE.robots, HAND = CUE.robotHand, OUT = CUE.aiOut;
 const BASE = 860;                              // the baseline (world y)
-const NBONES = 128;
+const NBONES = 160;
 const R3: V2 = [2980, BASE];                   // the arm's base
 const SHOULDER: V2 = [R3[0], BASE - 222];
 const CIRCLE = { c: [3232, 528] as V2, r: 92 };
@@ -92,7 +92,8 @@ export default class SceneTowardAI extends PanelScene {
       // the robots: the same relief as every body in the film, in blueprint tones
       vec3 Ld = normalize(vec3(-0.5, -0.65, 0.6));
       Body B = rbBody(px, 0, ${NBONES}, rbox);
-      c = bodyShade(c, B, Ld, vec3(1.0, 0.97, 0.92) * 1.1, vec3(0.15, 0.148, 0.145), vec3(0.2), 0.0, 1.0, C_BONE * 0.85, 6.0, 1.0);
+      // steel; ivory enamel; industrial ochre
+      c = bodyShade(c, B, Ld, vec3(1.0, 0.97, 0.92) * 1.1, vec3(0.15, 0.148, 0.145), vec3(0.6, 0.56, 0.48), vec3(0.5, 0.24, 0.035), 0.0, 1.0, C_BONE * 0.85, 6.0, 1.0);
       fragColor = vec4(c, 1.0);
     }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, rbox: { value: new THREE.Vector4() }, ...this.bones.uniforms('rb') });
 
@@ -157,7 +158,7 @@ export default class SceneTowardAI extends PanelScene {
   }
   robots(t: number): { caps: Part[]; joints: V2[]; guides: [V2, V2, number][] } {
     const caps: Part[] = [], joints: V2[] = [], guides: [V2, V2, number][] = [];
-    const M = MAT.METAL, J = MAT.JOINT, DK = MAT.DARK;
+    const M = MAT.METAL, J = MAT.JOINT, DK = MAT.DARK, IV = MAT.PAINT, OC = MAT.PAINT2, BR = MAT.BRASS, LP = MAT.LAMP;
     /** One part, growing in on its construction guide from time t0. */
     const part = (a: V2, b: V2, ra: number, rb: number, t0: number, mat: number = M, k = 3, guide = true) => {
       const g = ease.outBack(clamp((t - t0) / 0.18));
@@ -180,29 +181,36 @@ export default class SceneTowardAI extends PanelScene {
       part([ank[0] - 14, BASE - 8], [ank[0] + 34, BASE - 6], 9, 7, b0 + 0.05 + k, M, 2);
       part([ank[0] + 30, BASE - 7], [ank[0] + 40, BASE - 5], 6, 5, b0 + 0.06 + k, DK, 0, false);
       joint(ank, 8, b0 + 0.08 + k);
-      part(knee, ank, 15, 11, b0 + 0.1 + k);
+      part(knee, ank, 15, 11, b0 + 0.1 + k, IV);
       const [pa, pb] = off(knee, ank, -15); part(lerp2(pa, pb, 0.1), lerp2(pa, pb, 0.85), 3.5, 3, b0 + 0.12 + k, DK, 0, false);
       part(lerp2(pa, pb, 0.08), lerp2(pa, pb, 0.45), 6, 6, b0 + 0.12 + k, M, 0, false);
       joint(knee, 11, b0 + 0.13 + k);
-      part(hip, knee, 19, 15, b0 + 0.15 + k);
+      part(hip, knee, 19, 15, b0 + 0.15 + k, IV);
+      part(lerp2(hip, knee, 0.3), lerp2(hip, knee, 0.42), 19.5, 18.5, b0 + 0.16 + k, OC, -1, false);
       joint(hip, 12, b0 + 0.17 + k);
     }
     part([pel[0] - 26, pel[1]], [pel[0] + 26, pel[1]], 19, 19, b0 + 0.2, M, 6);
     part([pel[0], pel[1] - 10], [ch[0], ch[1] + 20], 9, 9, b0 + 0.22, DK, 0, false);
     for (let k = 0; k < 3; k++) { const y = pel[1] - 26 - k * 22; part([pel[0] - 2, y], [pel[0] + 2, y], 15 - k, 15 - k, b0 + 0.24 + k * 0.02, M, 0, false); }
-    part([ch[0], ch[1] + 40], [ch[0] + 2, ch[1] - 10], 36, 44, b0 + 0.3, M, 8);
-    part([ch[0] + 16, ch[1] + 4], [ch[0] + 17, ch[1] + 4], 22, 22, b0 + 0.32, M, 4, false);
+    part([ch[0], ch[1] + 40], [ch[0] + 2, ch[1] - 10], 36, 44, b0 + 0.3, IV, 8);
+    part([ch[0] - 30, ch[1] + 22], [ch[0] + 32, ch[1] + 22], 6, 6, b0 + 0.31, OC, -1, false);
+    part([ch[0] - 34, ch[1] - 2], [ch[0] - 34, ch[1] + 14], 3, 3, b0 + 0.31, DK, -1, false);
+    part([ch[0] + 16, ch[1] + 4], [ch[0] + 17, ch[1] + 4], 22, 22, b0 + 0.32, OC, 4, false);
     part([ch[0] + 22, ch[1] + 6], [ch[0] + 22.01, ch[1] + 6], 6, 6, b0 + 0.34, J, -1, false);
     for (const o of [-7, 7]) part([ch[0] + o, ch[1] - 40], [hd[0] + o * 0.6, hd[1] + 28], 3.5, 3, b0 + 0.36, DK, 0, false);
     joint([hd[0] - 2, hd[1] + 30], 7, b0 + 0.37);
-    part([hd[0] - 14, hd[1]], [hd[0] + 18, hd[1] - 2], 26, 23, b0 + 0.4, M, 6);
+    part([hd[0] - 14, hd[1]], [hd[0] + 18, hd[1] - 2], 26, 23, b0 + 0.4, IV, 6);
+    part([hd[0] - 18, hd[1] - 20], [hd[0] + 12, hd[1] - 23], 7, 6, b0 + 0.41, OC, -1, false);
     part([hd[0] + 4, hd[1] - 2], [hd[0] + 30, hd[1] - 3], 8, 7, b0 + 0.42, MAT.GLASS, -1, false);
+    part([hd[0] + 22, hd[1] - 3], [hd[0] + 22.01, hd[1] - 3], 4.5, 4.5, b0 + 0.44, LP, -1, false);
+    part([hd[0] - 6, hd[1] - 24], [hd[0] - 10, hd[1] - 44], 1.6, 1.2, b0 + 0.45, M, 0, false);
+    part([hd[0] - 10, hd[1] - 46], [hd[0] - 10.01, hd[1] - 46], 3, 3, b0 + 0.46, LP, 0, false);
     joint([hd[0] - 10, hd[1] + 2], 6, b0 + 0.43);
     const sh: V2 = [ch[0] + 8, ch[1] + 6], el: V2 = [sh[0] + 26 + 6 * Math.sin(t * 1.4), sh[1] + 90], wr: V2 = [el[0] + 30, el[1] + 74];
     joint(sh, 13, b0 + 0.5);
-    part(sh, el, 14, 11, b0 + 0.52);
+    part(sh, el, 14, 11, b0 + 0.52, IV);
     joint(el, 9, b0 + 0.54);
-    part(el, wr, 11, 9, b0 + 0.56);
+    part(el, wr, 11, 9, b0 + 0.56, IV);
     joint(wr, 6, b0 + 0.58);
     const pd: V2 = [wr[0] + 6, wr[1] + 16];
     part(wr, pd, 8, 7, b0 + 0.6, M, 2);
@@ -216,16 +224,19 @@ export default class SceneTowardAI extends PanelScene {
     part(wc, [wc[0] + 0.01, wc[1]], 22, 22, b1 + 0.08, M, -1, false);
     for (let k = 0; k < 4; k++) { const a = rot + (k * Math.PI) / 2, p: V2 = [wc[0] + Math.cos(a) * 14, wc[1] + Math.sin(a) * 14]; part(p, [p[0] + 0.01, p[1]], 3, 3, b1 + 0.1, DK, -1, false); }
     joint(wc, 6, b1 + 0.1);
-    for (const o of [-30, 30]) part([x2 + o, BASE - 110], [x2 + o * 0.4, BASE - 50], 7, 6, b1 + 0.12);
-    part([x2, BASE - 156], [x2 + 0.01, BASE - 156], 66, 66, b1 + 0.15, M, 6);
+    for (const o of [-30, 30]) part([x2 + o, BASE - 110], [x2 + o * 0.4, BASE - 50], 7, 6, b1 + 0.12, BR);
+    part([x2, BASE - 156], [x2 + 0.01, BASE - 156], 66, 66, b1 + 0.15, OC, 6);
     part([x2 - 64, BASE - 152], [x2 + 64, BASE - 152], 4, 4, b1 + 0.18, DK, -1, false);
+    part([x2 - 60, BASE - 140], [x2 + 60, BASE - 140], 7, 7, b1 + 0.18, IV, -1, false);
+    for (let k = 0; k < 4; k++) part([x2 - 34 + k * 9, BASE - 196], [x2 - 34 + k * 9, BASE - 178], 2, 2, b1 + 0.19, DK, -1, false);
     part([x2 + 30, BASE - 186], [x2 + 30.01, BASE - 186], 7, 7, b1 + 0.2, J, -1, false);
     joint([x2, BASE - 230], 9, b1 + 0.25);
-    part([x2 - 26, BASE - 262], [x2 + 26, BASE - 262], 21, 21, b1 + 0.3, M, 4);
+    part([x2 - 26, BASE - 262], [x2 + 26, BASE - 262], 21, 21, b1 + 0.3, IV, 4);
     part([x2 + 14, BASE - 264], [x2 + 14.01, BASE - 264], 9, 9, b1 + 0.33, MAT.GLASS, -1, false);
+    part([x2 + 15, BASE - 265], [x2 + 15.01, BASE - 265], 4.5, 4.5, b1 + 0.34, LP, -1, false);
     const ra: V2 = [x2 + 52, BASE - 170], re: V2 = [ra[0] + 46, ra[1] + 26 + 10 * Math.sin(t * 2)];
     joint(ra, 10, b1 + 0.36);
-    part(ra, re, 11, 9, b1 + 0.38);
+    part(ra, re, 11, 9, b1 + 0.38, IV);
     joint(re, 8, b1 + 0.4);
     const gp: V2 = [re[0] + 30, re[1] - 24], op = 0.25 + 0.2 * Math.sin(t * 2.5);
     part(re, gp, 8, 6, b1 + 0.42);
@@ -236,17 +247,18 @@ export default class SceneTowardAI extends PanelScene {
     const ik = this.armIK(t);
     part([R3[0] - 70, BASE - 14], [R3[0] + 70, BASE - 14], 18, 18, b2 + 0.0, M, 4);
     for (let k = 0; k < 4; k++) part([R3[0] - 54 + k * 36, BASE - 24], [R3[0] - 54 + k * 36 + 0.01, BASE - 24], 4, 4, b2 + 0.02, DK, -1, false);
-    part([R3[0], BASE - 30], [R3[0], BASE - 130], 36, 32, b2 + 0.06, M, 6);
-    part([R3[0], BASE - 130], SHOULDER, 30, 26, b2 + 0.08);
+    for (let k = 0; k < 7; k++) part([R3[0] - 66 + k * 22, BASE - 2], [R3[0] - 56 + k * 22, BASE - 26], 4, 4, b2 + 0.03, OC, -1, false);
+    part([R3[0], BASE - 30], [R3[0], BASE - 130], 36, 32, b2 + 0.06, OC, 6);
+    part([R3[0], BASE - 130], SHOULDER, 30, 26, b2 + 0.08, OC);
     joint(SHOULDER, 22, b2 + 0.12);
-    part(SHOULDER, ik.elbow, 27, 21, b2 + 0.16);
+    part(SHOULDER, ik.elbow, 27, 21, b2 + 0.16, OC);
     const [pa1, pb1] = off(SHOULDER, ik.elbow, 25);
     part(lerp2(pa1, pb1, 0.12), lerp2(pa1, pb1, 0.55), 9, 9, b2 + 0.18, M, 0, false);
     part(lerp2(pa1, pb1, 0.5), lerp2(pa1, pb1, 0.88), 4, 4, b2 + 0.19, DK, 0, false);
     const [ca, cb] = off(SHOULDER, ik.elbow, -22);
     part(lerp2(ca, cb, 0.05), lerp2(ca, cb, 0.95), 3, 3, b2 + 0.2, DK, 0, false);
     joint(ik.elbow, 17, b2 + 0.22);
-    part(ik.elbow, ik.wrist, 20, 15, b2 + 0.24);
+    part(ik.elbow, ik.wrist, 20, 15, b2 + 0.24, OC);
     const [cc, cd] = off(ik.elbow, ik.wrist, -17);
     part(lerp2(cc, cd, 0.08), lerp2(cc, cd, 0.92), 2.6, 2.6, b2 + 0.26, DK, 0, false);
     joint(ik.wrist, 12, b2 + 0.28);

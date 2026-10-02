@@ -9,7 +9,7 @@ import { PanelScene, type Frame } from '../engine/scene';
 import { FSPass, canvasTexture, W, H } from '../engine/gl';
 import { LineBatch } from '../engine/lines';
 import { LineMotif, arc, rgba } from '../motifs/line';
-import { pose, NB, type P2, type PoseOpts } from '../motifs/figure';
+import { pose, NB, type P2, type PoseOpts, type Look } from '../motifs/figure';
 import { BODY_COMMON_GLSL, bodyGLSL, PartArray, boxOf, type Part } from '../shaders/relief';
 import { makeCanvas, dabStroke, splatter, wobblyCircle, hexRGB, mixRGB, resample, type RGB } from '../art/paint';
 import { CUE } from '../timeline/cues';
@@ -104,14 +104,14 @@ export default class SceneWheel extends PanelScene {
       // the people
       vec3 Ld = normalize(vec3(-0.5, -0.6, 0.6));
       vec3 Lc = vec3(1.0, 0.95, 0.86);
-      vec3 skinC = vec3(0.30, 0.17, 0.095), hairC = vec3(0.05, 0.035, 0.025);
+      // three people, three looks: skin, hair and what they wear
       vec3 lineC = vec3(0.0);
-      c = bodyShade(c, fgBody(px, ${NB * 2}, ${NB}, fbox[2]), Ld, Lc, hairC, skinC, 0.0, 0.0, lineC, 6.0, 1.0);
-      c = bodyShade(c, fgBody(px, ${NB}, ${NB}, fbox[1]), Ld, Lc, hairC, skinC * 0.92, 0.0, 0.0, lineC, 6.0, 1.0);
+      c = bodyShade(c, fgBody(px, ${NB * 2}, ${NB}, fbox[2]), Ld, Lc, vec3(0.13, 0.045, 0.018), vec3(0.4, 0.25, 0.155), vec3(0.11, 0.13, 0.075), 0.0, 0.0, lineC, 6.0, 1.0);
+      c = bodyShade(c, fgBody(px, ${NB}, ${NB}, fbox[1]), Ld, Lc, vec3(0.018, 0.015, 0.013), vec3(0.15, 0.08, 0.047), vec3(0.4, 0.23, 0.065), 0.0, 0.0, lineC, 6.0, 1.0);
       // the wheels (and the cart's maker in front of them)
       c = wheel(c, px, w2, w2K, 0.0, 1.0);
       c = wheel(c, px, w1, discK, 0.0, discA);
-      c = bodyShade(c, fgBody(px, 0, ${NB}, fbox[0]), Ld, Lc, hairC, skinC, 0.0, 0.0, lineC, 6.0, 1.0);
+      c = bodyShade(c, fgBody(px, 0, ${NB}, fbox[0]), Ld, Lc, vec3(0.035, 0.026, 0.02), vec3(0.28, 0.16, 0.09), vec3(0.27, 0.095, 0.045), 0.0, 0.0, lineC, 6.0, 1.0);
       fragColor = vec4(c, 1.0);
     }`, {
     t: { value: 0 }, paint: { value: null }, order: { value: null }, w1: { value: new THREE.Vector2() }, w2: { value: new THREE.Vector2() },
@@ -220,7 +220,7 @@ export default class SceneWheel extends PanelScene {
     const mx = lerp(D0[0] - 215, w[0] - R - 175, stand);
     const walk = clamp((w[0] - D0[0]) / ROLL);
     const o: PoseOpts = {
-      kneel: 1 - stand, lean: lerp(0.35, 0.42, stand),
+      kneel: 1 - stand, lean: lerp(0.35, 0.42, stand), look: { beard: true, beads: true },
       armNear: [lerp(lerp(1.0, 2.5, strike) , 1.45, stand), lerp(0.5, 0.15, stand)],
       armFar: [lerp(1.1, 1.5, stand), lerp(0.6, 0.2, stand)],
     };
@@ -233,12 +233,13 @@ export default class SceneWheel extends PanelScene {
       return s.pts[Math.min(s.pts.length - 1, Math.floor(k * (s.pts.length - 1)))]!;
     };
     const painters: [P2, number, number, 0 | 1][] = [[[1290, BACK_GROUND], 250, 0, 0], [[1360, BACK_GROUND + 6], 250, 1, 1]];
+    const looks: Look[] = [{ long: true, pelt: true, paint: true }, { beads: true, paint: true, pelt: true }];
     for (const [root, H_, kneel, who] of painters) {
       const tg = target(who);
       const sh: P2 = [root[0] + 0.03 * H_, root[1] - (kneel ? 0.56 : 0.78) * H_];
       // shoulder angle from straight down (forward +) that points the arm at the target
       const arm: [number, number] = tg ? [Math.atan2(tg[0] - sh[0], tg[1] - sh[1]), 0.06] : [0.3, 0.3];
-      out.push(place(H_, root, pose(2, 0, 0, 0, { kneel, lean: kneel ? 0.15 : 0.05, armNear: arm, armFar: [0.15 + 0.1 * Math.sin(t), 0.4] })));
+      out.push(place(H_, root, pose(2, 0, 0, 0, { kneel, lean: kneel ? 0.15 : 0.05, armNear: arm, armFar: [0.15 + 0.1 * Math.sin(t), 0.4], look: looks[who] })));
     }
     return out;
   }
