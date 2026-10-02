@@ -11,7 +11,7 @@ You are continuing **OredLab — "One Line"**, a 95.6-second code-rendered promo
 ## 0. Ground rules
 
 1. **Do not hallucinate.** Report only what you verified: frame counts from `ffprobe -count_frames`, render progress as "N of M chunks" from the logs, frames you actually looked at with the Read tool. Never state an estimated finish time as fact.
-2. **Branch:** all the work is on `ccr-098d04e8-1zl2lk` (latest commit `00396a4`). If your session names a different branch, create it from `origin/ccr-098d04e8-1zl2lk`. Commit and push often: the container is temporary and `out/` is gitignored.
+2. **Branch:** all the work is merged into `main` (it was developed on `ccr-098d04e8-1zl2lk`). Work on the development branch your session names, created from `origin/main` (or merge `origin/main` into it first). Commit and push often: the container is temporary and `out/` is gitignored.
 3. **Read first:** `docs/HANDOFF.md` (the full state, the gotchas and every round of changes), then `README.md`, `docs/TREATMENT.md` and `docs/ENGINE.md`.
 
 ## 1. What the film is now
