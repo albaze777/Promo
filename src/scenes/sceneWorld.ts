@@ -31,7 +31,7 @@ export default class SceneWorld extends Scene {
     s.ripple = 0.55 * ease.outExpo(ru);
     s.rippleAmp = t >= CUE.life ? (1 - ru) ** 2 * 0.9 : 0;
     s.reveal = smoothstep(CUE.world - 0.15, CUE.world + 0.3, t);
-    s.atmo = 1 - smoothstep(CUE.dive + 0.1, CUE.dive + 0.5, t);
+    s.atmo = 1 - smoothstep(CUE.dive + 0.1, CUE.dive + 0.5, t); s.time = t;
     s.warm = 0.35 * smoothstep(CUE.life + 0.3, CUE.evo, t);
     this.topo.render(r, out, s);
 

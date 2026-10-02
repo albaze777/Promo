@@ -5,6 +5,11 @@ import * as THREE from 'three';
 import { FSPass } from '../engine/gl';
 import { NB } from '../motifs/figure';
 import { BODY_COMMON_GLSL, bodyGLSL } from './relief';
+import { SPACE_GLSL, spaceDrift } from './space';
+import { CAM_END } from '../motifs/orbit';
+
+/** Where Origin's sky ends up: the planet's sky continues it exactly. */
+const SKY = spaceDrift(CAM_END.x, CAM_END.z);
 
 export const TERRAIN_GLSL = /* glsl */ `
 float terrain(vec3 p, float oct) {
@@ -94,13 +99,15 @@ export interface TopoState {
   drainCenter: [number, number];
   drainR: number;
   atmo: number;
+  /** story time (waves, clouds, twinkle) */
+  time: number;
 }
 
 export function defaultTopo(): TopoState {
   return {
     center: [960, 540], radius: 236, rot: new THREE.Matrix3(), sea: 0.5, zoom: 1, land: new THREE.Vector3(0, 0, 1),
     life: 0, ripple: 0, rippleAmp: 0, redCoast: 0, reveal: 1, warm: 0, handMix: 0, handPos: [0, 0], handRot: 0, handScale: 1,
-    stone: 0, drainCenter: [0, 0], drainR: 1e5, atmo: 1, handFlip: 1,
+    stone: 0, drainCenter: [0, 0], drainR: 1e5, atmo: 1, handFlip: 1, time: 0,
     figMix: 0, handMorph: 1, figGrow: 0, figSmooth: 6, echoR: 95, ghostA: [0, 0],
     bones: new Float32Array(3 * NB * 4), radii: new Float32Array(3 * NB * 4), furK: 1, boxes: new Float32Array(12).fill(-1e5), recede: 0.3,
   };
@@ -114,7 +121,9 @@ export class TopoPass {
     uniform vec2 drainCenter; uniform float drainR; uniform float atmo; uniform float handFlip;
     uniform vec4 fBox[3];
     uniform float figMix, handMorph, figGrow, figSmooth, echoR, recede, furK; uniform vec2 ghostA;
+    uniform float time;
     ${TERRAIN_GLSL}
+    ${SPACE_GLSL}
     ${BODY_COMMON_GLSL}
     ${bodyGLSL('fg', 3 * NB)}
     float sdFig(vec2 p, int f) { return fgBody(p, f * ${NB}, ${NB}, fBox[f]).d; }
@@ -140,10 +149,13 @@ export class TopoPass {
       // atmosphere: thin, warm-white, outside the limb (fades with the dive)
       float rr = sqrt(r2);
       if (rr > 1.0) {
+        col += spaceBg(px / RES.y + vec2(${SKY[0].toFixed(5)}, ${SKY[1].toFixed(5)}), 0.5 * atmo * (1.0 - warm), time);
         float g = exp(-(rr - 1.0) * 26.0) * 0.08 + exp(-(rr - 1.0) * 6.0) * 0.015;
         vec2 ld = normalize(vec2(-0.6, -0.55));
         float lit = 0.35 + 0.65 * sat(dot(normalize(q), ld) * 0.8 + 0.5);
-        col += vec3(1.0, 0.93, 0.86) * g * lit * atmo * reveal;
+        // a thin blue scattering rim inside a warm-white halo
+        vec3 atC = mix(vec3(0.55, 0.75, 1.0), vec3(1.0, 0.93, 0.86), smoothstep(0.0, 0.03, rr - 1.0));
+        col += atC * g * lit * atmo * reveal;
         fragColor = vec4(col, 1.0);
         return;
       }
@@ -155,10 +167,11 @@ export class TopoPass {
       // the body: the walking figure (03a), the hand (03b), or the morph between them
       float bodyK = max(handMix, figMix);
       float hd = 1e5;
+      vec2 hcan = vec2(1e5);                                   // the pixel in the hand's canonical frame
       Body fig; fig.d = 1e5; fig.mat = 1.0; fig.uv = vec2(0.0); fig.r = 1.0; fig.t = vec2(1.0, 0.0); fig.round = 0.0; fig.n = vec3(0.0, 0.0, 1.0);
       if (bodyK > 0.0) {
         float dH = 1e5, dF = 1e5;
-        if (handMorph > 0.0) { vec2 hp = rot2(-handRot) * (px - handPos) / handScale; hp.y *= handFlip; dH = sdHand(hp) * handScale; }
+        if (handMorph > 0.0) { vec2 hp = rot2(-handRot) * (px - handPos) / handScale; hp.y *= handFlip; dH = sdHand(hp) * handScale; hcan = hp; }
         if (handMorph < 1.0) { fig = fgBody(px, 0, ${NB}, fBox[0]); dF = fig.d + figGrow; }
         hd = handMorph <= 0.0 ? dF : handMorph >= 1.0 ? dH : mix(dF, dH, handMorph);
       }
@@ -172,15 +185,76 @@ export class TopoPass {
       sphereLit = mix(sphereLit, 1.0, sat(lvl / 3.0));       // deep in the dive the sphere is flat & lit
       vec2 g = vec2(dFdx(h), dFdy(h)) / max(stepU, 1e-6);
       float shade = sat(0.6 + dot(normalize(vec3(-g * 0.9, 1.0)), normalize(vec3(-0.6, 0.6, 0.55))) * 0.55 - 0.15);
-      // base: ocean (cold, deep) / land (warm graphite)
-      vec3 ocean = mix(vec3(0.004, 0.006, 0.010), vec3(0.008, 0.011, 0.016), sat((h - sea + 0.12) * 6.0));
-      vec3 ground = mix(vec3(0.013, 0.012, 0.011), vec3(0.024, 0.021, 0.018), sat((h - sea) * 8.0));
-      ground = mix(ground, mix(ground, C_WARMBONE * 0.045, 0.5), warm);
-      vec3 base = mix(ocean, ground * (0.55 + 0.9 * shade), land01);
-      // life: warmth spreading from the touchdown point
+      float hs = h - sea;                                      // height above the sea
       float ang = acos(clamp(dot(normalize(p), normalize(land)), -1.0, 1.0));
-      float alive = smoothstep(life, life - 0.15, ang) * land01;
-      base = mix(base, base + C_OCHRE * 0.035 * (0.5 + 0.5 * shade), alive);
+      float aliveK = smoothstep(life, life - 0.15, ang);      // life spreads from the touchdown point
+      float alive = aliveK * land01;
+      // fine texture that stays put on the ground: noise in body coordinates, an octave finer per zoom level
+      float fz = 70.0 * pow(2.0, floor(lvl));
+      float tex1 = vnoise3(p * fz + 3.1), tex2 = vnoise3(p * fz * 2.0 + 8.7);
+      float tex = mix(tex1, tex2, fineK);
+      float texW = fwidth(tex);
+      float moist = vnoise3(p * 5.0 + 11.0) * 0.7 + vnoise3(p * 13.0 + 2.0) * 0.3;
+      // rivers: a large field whose sample point is warped by a finer one, so they meander at every zoom
+      vec3 pw = p;
+      for (int k = 0; k < 2; k++) {
+        float f = fz * (k == 0 ? 0.05 : 0.1);
+        vec3 wv = vec3(vnoise3(pw * f + 1.7), vnoise3(pw * f + 4.3), vnoise3(pw * f + 8.1)) - 0.5;
+        pw += wv * (k == 0 ? 1.0 - fineK : fineK) * 2.4 / f;
+      }
+      float rv = vnoise3(pw * 12.0 + 5.0) * 0.65 + vnoise3(pw * 29.0 + 9.0) * 0.35;
+      // forest patches that keep their size on screen
+      float fpatch = mix(vnoise3(p * fz * 0.09 + 6.1), vnoise3(p * fz * 0.18 + 2.9), fineK);
+      float rvW = fwidth(rv);
+      float pole = smoothstep(0.82, 0.9, abs(p.y) + 0.06 * (vnoise3(p * 9.0) - 0.5));
+      // ---- the sea: a turquoise shelf falling to a deep ultramarine, waves rolling in, surf at the shore ----
+      float depth = sat(-hs / 0.08);
+      vec3 ocean = mix(vec3(0.010, 0.034, 0.038), vec3(0.004, 0.010, 0.022), smoothstep(0.0, 0.55, depth));
+      ocean = mix(ocean, vec3(0.0018, 0.0035, 0.010), smoothstep(0.5, 1.0, depth));
+      float dd = -hs / stepU;                                    // depth in contour steps (the same at every zoom)
+      // map coordinates that pan and zoom with the ground (two octaves cross-faded per zoom level)
+      vec2 m1 = (px - center) * pow(2.0, -fineK);
+      vec2 mr = rot2(0.35) * m1;
+      float near = 1.0 - smoothstep(0.2, 1.2, 1.0 - lvl);       // only once we are close to the surface
+      // wind ripples: short bright streaks drifting across the water
+      float rip1 = vnoise(vec2(mr.x / 38.0, mr.y / 2.6) + vec2(time * 0.7, 0.0));
+      float rip2 = vnoise(vec2(mr.x / 19.0, mr.y / 1.3) + vec2(time * 1.4, 3.0));
+      float ripple = smoothstep(0.66, 0.92, mix(rip1, rip2, fineK)) * (0.5 + 0.5 * smoothstep(0.3, 0.7, fpatch));
+      // glints: points of sun that flicker
+      vec2 gc = floor(m1 / 7.0);
+      float glit = step(0.992, hash12(gc + floor(time * 6.0 + hash12(gc) * 6.0))) * smoothstep(2.4, 0.0, length(m1 - (gc + 0.5) * 7.0));
+      // surf: a broken white fringe at the shore and a second line that runs in and out
+      float fn = vnoise(m1 / 9.0 + vec2(time * 0.9, -time * 0.4)) * 0.6 + vnoise(m1 / 3.5 - time) * 0.4;
+      // (near this coast a depth step is only a few px, so the bands are a few steps wide)
+      float fringe = smoothstep(1.6, 0.4, dd + 1.2 * (fn - 0.5)) * step(0.0, dd);
+      float runup = 2.6 + 0.9 * sin(time * 1.7 + fpatch * 6.0);
+      float surfL = smoothstep(0.45, 0.0, abs(dd - runup) - 0.2 + 0.5 * (fn - 0.5)) * smoothstep(0.35, 0.6, fn);
+      float sea01 = 1.0 - land01;
+      ocean += vec3(0.02, 0.03, 0.032) * ripple * (1.0 - 0.6 * depth) * near * sea01;
+      ocean += vec3(1.0, 0.95, 0.85) * 0.25 * glit * near * sea01;
+      ocean = mix(ocean, vec3(0.13, 0.15, 0.15) * (0.8 + 0.4 * fn), (fringe * 0.7 + surfL * 0.45) * near * sea01);
+      ocean += vec3(0.006, 0.01, 0.012) * (tex - 0.5) * (1.0 - depth * 0.5);   // ripples
+      // ---- the land: bare rock until life reaches it; then green lowlands, forests, ochre uplands, pale peaks ----
+      float el = sat(hs / 0.32);
+      vec3 rock = mix(vec3(0.016, 0.014, 0.012), vec3(0.03, 0.026, 0.021), smoothstep(0.0, 0.6, el)) * (0.85 + 0.3 * tex);
+      vec3 veg = mix(vec3(0.014, 0.027, 0.012), vec3(0.03, 0.03, 0.013), smoothstep(0.08, 0.38, el - 0.12 * (moist - 0.5)));
+      veg = mix(veg, vec3(0.034, 0.024, 0.016), smoothstep(0.4, 0.65, el));
+      float forest = smoothstep(0.52, 0.64, moist * 0.55 + fpatch * 0.45) * (1.0 - smoothstep(0.35, 0.55, el)) * smoothstep(0.0, 0.03, hs);
+      float stip = smoothstep(0.58 - texW, 0.66 + texW, tex);
+      veg = mix(veg, vec3(0.006, 0.016, 0.007), forest * (0.45 + 0.55 * stip));
+      vec3 ground = mix(rock, veg, aliveK);
+      ground = mix(ground, vec3(0.062, 0.05, 0.034), smoothstep(0.012, 0.0, hs) * land01);      // a beach
+      ground = mix(ground, vec3(0.1, 0.1, 0.1), smoothstep(0.86, 0.94, el + 0.08 * (tex - 0.5)));  // snow on the peaks
+      ground = mix(ground, mix(ground, C_WARMBONE * 0.045, 0.5), warm * 0.6);
+      vec3 base = mix(ocean, ground * (0.55 + 0.9 * shade), land01);
+      // rivers: meandering lines that run through the lowlands to the sea
+      float rwid = min(0.0035, rvW * 1.6);
+      float lowland = land01 * (1.0 - smoothstep(0.1, 0.3, el)) * smoothstep(0.35, 0.6, moist + 0.2);
+      float river = (1.0 - smoothstep(rwid, rwid + rvW, abs(rv - 0.5))) * lowland;
+      base = mix(base, vec3(0.014, 0.045, 0.052), river * 0.9 * aliveK);
+      // ice at the poles
+      base = mix(base, vec3(0.11, 0.115, 0.12) * (0.6 + 0.6 * shade), pole);
+      base = mix(base, base + C_OCHRE * 0.012 * (0.5 + 0.5 * shade), alive);
       // contours: major + minor levels, cross-faded so the zoom reveals ever finer lines
       float cMaj = iso(h - sea, stepU, 1.05);
       float cMin = iso(h - sea, stepF, 0.8) * fineK;
@@ -210,13 +284,50 @@ export class TopoPass {
         vec2 hg = vec2(dFdx(hh), dFdy(hh));
         vec3 hn = normalize(vec3(-hg * 1.4, 1.0));
         float hs = sat(dot(hn, normalize(vec3(-0.55, 0.65, 0.6))));
-        vec3 skin = mix(C_WARMINK * 1.4, C_WARMBONE * 0.13, hs);
-        c = mix(c, skin, inside * bodyK * 0.92);
-        float rings = iso(hh, 6.5, 0.9) * inside * smoothstep(0.0, 6.0, -hd);
+        // skin: the walking human's (03a), lit and warm at the rims, with fine texture
+        vec3 skinH = vec3(0.21, 0.115, 0.068);
+        float rimH = pow(1.0 - hn.z, 2.0);
+        vec3 skin = skinH * (0.22 + 1.05 * hs) * vec3(1.0, 0.92, 0.84) + skinH * vec3(1.0, 0.45, 0.3) * rimH * 0.4;
+        skin *= 0.93 + 0.1 * vnoise(hcan / 1.8) + 0.05 * vnoise(hcan / 7.0);
+        // veins on the back of the hand and the wrist
+        float vn = abs(vnoise(vec2(hcan.x / 75.0, hcan.y / 24.0) + 3.0) - 0.5);
+        float vein = smoothstep(0.04, 0.0, vn) * smoothstep(-260.0, -80.0, hcan.x) * (1.0 - smoothstep(40.0, 85.0, hcan.x));
+        skin = mix(skin, skin * vec3(0.62, 0.7, 0.92), vein * 0.7);
+        // knuckles: the skin stretched bright over the curled fingers and the base of the index
+        float kn = 0.0;
+        kn += exp(-dot(hcan - vec2(150.0, -4.0), hcan - vec2(150.0, -4.0)) / 260.0);
+        kn += exp(-dot(hcan - vec2(138.0, 36.0), hcan - vec2(138.0, 36.0)) / 230.0);
+        kn += exp(-dot(hcan - vec2(112.0, 72.0), hcan - vec2(112.0, 72.0)) / 190.0);
+        kn += exp(-dot(hcan - vec2(84.0, -46.0), hcan - vec2(84.0, -46.0)) / 300.0);
+        skin *= 1.0 + 0.3 * kn;
+        // creases across the index finger's joints
+        float cr = 0.0;
+        for (int j = 0; j < 2; j++) {
+          float xj = j == 0 ? 215.0 : 276.0;
+          for (int k = -1; k <= 1; k++) {
+            float len = (j == 0 ? 15.0 : 12.0) - abs(float(k)) * 4.0;
+            cr += pxLine((hcan.x - xj - float(k) * 5.0 - 2.5 * sin(hcan.y * 0.25)) * handScale, 1.4) * smoothstep(len, len - 4.0, abs(hcan.y + 52.0));
+          }
+        }
+        skin *= 1.0 - 0.6 * sat(cr);
+        // nails: the index finger and the thumb (a pale bed, a lunula, a white free edge, a fine rim)
+        float dn1 = sdCapsule(hcan, vec2(304.0, -51.0), vec2(328.0, -50.0), 9.5, 8.5) * handScale;
+        float dn2 = sdCapsule(hcan, vec2(90.0, -100.0), vec2(108.0, -99.0), 8.0, 7.0) * handScale;
+        float dn = min(dn1, dn2);
+        float nail = smoothstep(1.0, -1.0, dn);
+        float tipK = smoothstep(326.0, 334.0, hcan.x) * step(-80.0, hcan.y) + smoothstep(106.0, 113.0, hcan.x) * step(hcan.y, -80.0);
+        vec3 nailC = mix(vec3(0.26, 0.14, 0.11), vec3(0.42, 0.34, 0.27), tipK);                           // a pink bed, a pale free edge
+        nailC = mix(nailC, vec3(0.32, 0.21, 0.17), smoothstep(310.0, 305.0, hcan.x) * step(-80.0, hcan.y)); // the lunula
+        nailC *= 0.35 + 1.0 * hs;
+        nailC += vec3(1.0, 0.95, 0.9) * 0.06 * smoothstep(2.5, 0.0, abs(hcan.y + 54.0 + (hcan.y < -80.0 ? 48.0 : 0.0))) * hs;   // a sheen
+        skin = mix(skin, nailC, nail * 0.85);
+        skin *= 1.0 - 0.3 * pxLine(dn, 1.0);
+        c = mix(c, skin, inside * bodyK * 0.95);
+        float rings = iso(hh, 6.5, 0.9) * inside * smoothstep(0.0, 6.0, -hd) * (1.0 - nail);
         float outline = pxLine(hd, 1.7);
         float echo = iso(hd, 15.0 * echoR / 95.0, 0.8) * smoothstep(echoR, 4.0, hd) * step(0.0, hd);
         vec3 lc = mix(C_BONE, C_WARMBONE, 0.6);
-        c += lc * bodyK * (rings * (0.16 + 0.32 * hs) + outline * 0.75 + echo * 0.16);
+        c += lc * bodyK * (rings * (0.08 + 0.18 * hs) + outline * 0.75 + echo * 0.16);
         // 03a: the walking figure in full detail — fur that thins to skin, a face, hands and feet, hair, cloth
         if (handMorph < 1.0) {
           Body fb = fig; fb.d = hd;
@@ -243,6 +354,22 @@ export class TopoPass {
       if (stone > 0.0) {
         c = mix(c, stoneColor(px), stone);
       }
+      // the planet seen whole: the sun's glint on the sea, drifting clouds with their shadows, a hazy limb
+      float whole = 1.0 - smoothstep(0.3, 1.8, lvl);
+      if (whole > 0.0) {
+        vec3 nw = normalize(nv + vec3(tex1 - 0.5, tex2 - 0.5, 0.0) * 0.06);
+        float glint = pow(sat(dot(reflect(-L, nw), vec3(0.0, 0.0, 1.0))), 60.0) * (1.0 - land01) * (1.0 - pole);
+        c += vec3(1.0, 0.9, 0.75) * glint * 0.5 * whole;
+        vec3 pc = p + vec3(time * 0.03, 0.0, 0.0);
+        float cn = vnoise3(pc * 4.0) * 0.55 + vnoise3(pc * 9.0 + 4.0) * 0.3 + vnoise3(pc * 21.0 + 7.0) * 0.15;
+        float cs = vnoise3((pc + vec3(0.03, -0.02, 0.0)) * 4.0) * 0.55 + vnoise3((pc + vec3(0.03, -0.02, 0.0)) * 9.0 + 4.0) * 0.3;
+        float clear = smoothstep(0.12, 0.3, ang);                // keep the touchdown point clear of cloud
+        float cloud = smoothstep(0.63, 0.78, cn) * clear * whole;
+        float shadow = smoothstep(0.6, 0.74, cs) * clear * whole;
+        c *= 1.0 - shadow * 0.3;
+        c = mix(c, vec3(0.2, 0.198, 0.195), cloud * 0.55);
+        c = mix(c, vec3(0.5, 0.62, 0.8) * 0.06, pow(1.0 - nv.z, 3.0) * 0.6 * atmo * whole);
+      }
       c *= sphereLit;
       // limb darkening & AA edge
       float edge = sat((1.0 - rr) * radius * PX_SCALE * 0.5);
@@ -253,7 +380,7 @@ export class TopoPass {
     zoom: { value: 1 }, land: { value: new THREE.Vector3() }, life: { value: 0 }, ripple: { value: 0 }, rippleAmp: { value: 0 },
     redCoast: { value: 0 }, reveal: { value: 1 }, warm: { value: 0 }, handMix: { value: 0 }, handPos: { value: new THREE.Vector2() },
     handRot: { value: 0 }, handScale: { value: 1 }, stone: { value: 0 }, drainCenter: { value: new THREE.Vector2() }, drainR: { value: 1e5 },
-    atmo: { value: 1 }, handFlip: { value: 1 },
+    atmo: { value: 1 }, handFlip: { value: 1 }, time: { value: 0 },
     fgA: { value: Array.from({ length: 3 * NB }, () => new THREE.Vector4()) },
     fgR: { value: Array.from({ length: 3 * NB }, () => new THREE.Vector4()) },
     furK: { value: 1 },
@@ -274,7 +401,7 @@ export class TopoPass {
     (u.handPos!.value as THREE.Vector2).set(s.handPos[0], s.handPos[1]);
     u.handRot!.value = s.handRot; u.handScale!.value = s.handScale; u.stone!.value = s.stone;
     (u.drainCenter!.value as THREE.Vector2).set(s.drainCenter[0], s.drainCenter[1]);
-    u.drainR!.value = s.drainR; u.atmo!.value = s.atmo; u.handFlip!.value = s.handFlip;
+    u.drainR!.value = s.drainR; u.atmo!.value = s.atmo; u.handFlip!.value = s.handFlip; u.time!.value = s.time;
     u.figMix!.value = s.figMix; u.handMorph!.value = s.handMorph; u.figGrow!.value = s.figGrow; u.figSmooth!.value = s.figSmooth;
     u.echoR!.value = s.echoR; u.recede!.value = s.recede; u.furK!.value = s.furK; (u.ghostA!.value as THREE.Vector2).set(s.ghostA[0], s.ghostA[1]);
     if (s.figMix > 0 || s.ghostA[0] > 0 || s.ghostA[1] > 0) {

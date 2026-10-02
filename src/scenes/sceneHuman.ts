@@ -57,7 +57,7 @@ export default class SceneHuman extends Scene {
     const d = dive(t);
     s.center = d.center; s.radius = d.radius; s.zoom = d.zoom;
     s.rot = rotAt(t); s.land.copy(WORLD.land); s.sea = WORLD.sea;
-    s.life = 3; s.redCoast = 1; s.reveal = 1; s.atmo = 0;
+    s.life = 3; s.redCoast = 1; s.reveal = 1; s.atmo = 0; s.time = t;
     s.warm = keys(t, [[CUE.human, 0.35], [CUE.touch, 0.85], [CUE.art0, 1.0]]);
     // the hand arrives with the push-in of 03a (already risen), draws, then sinks back
     const sink = ease.inOutCubic(clamp((t - (STROKE1 + 0.05)) / 0.55));

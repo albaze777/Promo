@@ -88,7 +88,7 @@ export default class SceneEvolution extends Scene {
     const d = dive(t);
     s.center = d.center; s.radius = d.radius; s.zoom = d.zoom;
     s.rot = rotAt(t); s.land.copy(WORLD.land); s.sea = WORLD.sea;
-    s.life = 3; s.redCoast = 1; s.reveal = 1; s.atmo = 0; s.ripple = 0; s.rippleAmp = 0;
+    s.life = 3; s.redCoast = 1; s.reveal = 1; s.atmo = 0; s.ripple = 0; s.rippleAmp = 0; s.time = t;
     s.warm = 0.35; s.stone = 0; s.drainR = 1e5; s.handMix = 0;
 
     // the figure (and its echoes)

@@ -10,6 +10,7 @@ import { LineMotif, BONE, ASH, rgba, arc } from '../motifs/line';
 import { C, RP, CAM_END, makeCamera, project, orbitPoint, occluded } from '../motifs/orbit';
 import { CUE } from '../timeline/cues';
 import { Rng, clamp, ease, keys, lerp, smoothstep, TAU } from '../utils/math';
+import { SPACE_GLSL, spaceDrift } from '../shaders/space';
 
 const IGN = CUE.ignite;
 const W0 = CUE.world; // the hand-off to World: the line joins its orbit and the disc closes into the sphere
@@ -24,14 +25,13 @@ export default class SceneOrigin extends Scene {
   flat = new LineBatch(2048);
   motif = new LineMotif();
   bg = new FSPass(/* glsl */ `
-    uniform float reveal; uniform vec2 drift;
+    uniform float reveal, t; uniform vec2 drift;
+    ${SPACE_GLSL}
     void main() {
-      vec2 p = FRAG_PX / RES.y;
-      float d = fbm(p * 1.1 + drift, 3);
-      float g = smoothstep(0.5, 1.0, d) * reveal;
-      vec3 c = C_INK * 0.55 + vec3(0.0045, 0.0045, 0.0052) * g;
+      vec2 p = FRAG_PX / RES.y + drift;
+      vec3 c = C_INK * 0.55 + spaceBg(p, reveal, t);
       fragColor = vec4(c, 1.0);
-    }`, { reveal: { value: 0 }, drift: { value: new THREE.Vector2() } });
+    }`, { reveal: { value: 0 }, t: { value: 0 }, drift: { value: new THREE.Vector2() } });
 
   // star data
   P = new Float32Array(N_STARS * 3);      // final (expanded) position
@@ -88,9 +88,11 @@ export default class SceneOrigin extends Scene {
       this.D[i] = rng.next() ** 2 * 0.22;
       this.R[i * 2] = Math.sqrt(rng.next());
       this.R[i * 2 + 1] = rng.next() * TAU;
-      // restrained colour: bone, with a few warm and a few cool-grey
+      // colour: mostly bone, with blue-white, gold, orange and a few red stars; some filament gas glows
+      // terracotta or viridian
       const c = rng.next();
-      const col = c < 0.08 ? [1.0, 0.78, 0.62] : c < 0.2 ? [0.78, 0.8, 0.86] : [BONE[0], BONE[1], BONE[2]];
+      const col = c < 0.07 ? [1.0, 0.74, 0.52] : c < 0.16 ? [0.7, 0.8, 1.0] : c < 0.21 ? [1.0, 0.86, 0.55] : c < 0.24 ? [1.0, 0.5, 0.38]
+        : c < 0.3 && u < 0.62 ? [0.9, 0.45, 0.32] : c < 0.35 && u < 0.62 ? [0.4, 0.75, 0.66] : [BONE[0], BONE[1], BONE[2]];
       this.K.set(col, i * 3);
     }
   }
@@ -130,7 +132,9 @@ export default class SceneOrigin extends Scene {
     cam.getWorldDirection(fwd);
 
     this.bg.u.reveal!.value = smoothstep(IGN, IGN + 1.2, t) * (1 - smoothstep(W0 - 0.4, W0 + 0.1, t) * 0.5);
-    (this.bg.u.drift!.value as THREE.Vector2).set(cp.x * 0.002, (cp.z * 0.0015) % 100);
+    const dr = spaceDrift(cp.x, cp.z);
+    (this.bg.u.drift!.value as THREE.Vector2).set(dr[0], dr[1]);
+    this.bg.u.t!.value = t;
     this.bg.render(r, out);
 
     const conv = ease.inOutCubic(clamp((t - CUE.converge) / (CUE.world - CUE.converge)));

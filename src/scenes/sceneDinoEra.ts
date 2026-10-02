@@ -92,6 +92,39 @@ export default class SceneDinoEra extends PanelScene {
       float l = sat(0.4 - abs(fract(x - 0.5) - 0.5) / fw) * sat(1.4 - fw * 4.0);
       return c + lineC * l * (1.0 - v * 0.7);
     }
+    /** The forest on the mid hills, as a distance (px, negative inside) at x and height y above the ridge:
+     *  conifers with tiers of branches, and cycads / tree ferns with a trunk and a crown of fronds. lit: 1 on
+     *  the side facing the light (left). */
+    float tree(float x, float y, out float lit) {
+      float best = 1e5; lit = 0.5;
+      float cell = floor(x / 22.0);
+      for (int k = -2; k <= 2; k++) {
+        float ci = cell + float(k);
+        float hx = hash12(vec2(ci, 3.0));
+        if (hx < 0.35) continue;                                   // gaps in the forest
+        float xc = (ci + 0.2 + 0.6 * hash12(vec2(ci, 7.0))) * 22.0;
+        float H = 26.0 + 58.0 * hash12(vec2(ci, 11.0)) * smoothstep(0.35, 0.8, hx);
+        float dx = x - xc;
+        float d;
+        if (hash12(vec2(ci, 13.0)) < 0.7) {
+          float yk = clamp(y, 0.0, H);
+          float tier = fract(yk / H * 5.0);
+          float hw = H * 0.26 * (1.0 - yk / H) * (0.62 + 0.38 * tier) + 0.6;
+          d = abs(dx) - (y < H * 0.08 ? 2.2 : hw);
+          d = max(d, max(-y - 2.0, y - H));
+        } else {
+          vec2 cc = vec2(0.0, H * 0.78);
+          vec2 q = vec2(dx, y) - cc;
+          float a = atan(q.y, q.x);
+          float r = H * 0.3 * (0.75 + 0.25 * abs(sin(a * 4.0)));    // a crown of fronds
+          float crown = (length(q * vec2(1.0, 1.5)) - r) * 0.8;
+          float trunk = max(abs(dx) - 2.0, max(-y - 2.0, y - cc.y));
+          d = min(crown, trunk);
+        }
+        if (d < best) { best = d; lit = step(dx, 0.0); }
+      }
+      return best;
+    }
     /** fire colour from a temperature 0..1: smoke-dark → deep red → orange → yellow → white */
     vec3 fireRamp(float T) {
       vec3 c = mix(vec3(0.03, 0.02, 0.015), vec3(1.0, 0.16, 0.03), smoothstep(0.08, 0.35, T));
@@ -111,9 +144,15 @@ export default class SceneDinoEra extends PanelScene {
       // ---- sky: dusk over the horizon, a few stars ----
       vec2 ps = cam(px, 0.05);
       vec3 c = mix(C_INK * 0.55, mix(C_TERRACOTTA, C_OCHRE, 0.35) * 0.12, smoothstep(140.0, H0 + 20.0, ps.y));
+      // long dusk cloud bands, dark above and lit warm from the sunken sun below
+      float cb = fbm(vec2(ps.x / 520.0 + t * 0.01, ps.y / 46.0), 5);
+      float cloud = smoothstep(0.52, 0.7, cb) * smoothstep(150.0, 300.0, ps.y) * smoothstep(H0 - 40.0, 420.0, ps.y);
+      float under = smoothstep(0.0, 1.0, fbm(vec2(ps.x / 520.0 + t * 0.01, (ps.y + 9.0) / 46.0), 5) - cb + 0.5);
+      vec3 cloudC = mix(vec3(0.012, 0.009, 0.009), mix(C_TERRACOTTA, C_OCHRE, 0.5) * 0.11, under * smoothstep(200.0, 520.0, ps.y));
       vec2 sg = floor(ps / 3.0);
       float st = step(0.9975, hash12(sg)) * (0.5 + 0.5 * sin(t * 3.0 + hash12(sg + 3.0) * 30.0));
-      c += C_BONE * st * 0.35 * smoothstep(H0, 200.0, ps.y) * (1.0 - sat(fireL));
+      c += C_BONE * st * 0.35 * smoothstep(H0, 200.0, ps.y) * (1.0 - sat(fireL)) * (1.0 - cloud);
+      c = mix(c, cloudC + warmL * fireL * 0.05 * under, cloud * 0.85);
       // the falling meteor lights the whole sky
       float dm = length(px - mtr[0]);
       c += vec3(1.0, 0.7, 0.4) * mBright * (exp(-dm / 420.0) * 0.08 + 0.015);
@@ -194,11 +233,47 @@ export default class SceneDinoEra extends PanelScene {
       float plume = 0.0;
       if (abs(pl.x) < 420.0 && pl.y < 40.0) plume = smoothstep(0.0, -300.0, pl.y) * exp(-pow(pl.x - pl.y * -0.35 - 20.0 * sin(pl.y / 60.0 + t), 2.0) / (2.0 * pow(28.0 - pl.y * 0.25, 2.0)));
       if (plume > 0.002) plume *= 0.6 + 0.4 * fbm(vec2(pl.x / 50.0 - t * 0.2, pl.y / 50.0 + t * 0.6), 4);
-      c = mix(c, C_GRAPHITE * 0.25 + warmL * fireL * 0.05, plume * 0.8);
+      vec3 lavaC = vec3(2.2, 0.6, 0.1);
+      float craterY = H0 - 285.0;
+      // the plume is lit orange from below by the crater
+      c = mix(c, C_GRAPHITE * 0.25 + warmL * fireL * 0.05 + lavaC * 0.03 * exp(-max(0.0, craterY - pf.y) / 70.0), plume * 0.8);
+      // the crater's glow in the air above it
+      c += lavaC * 0.025 * exp(-length((pf - vec2(560.0, craterY)) * vec2(1.0, 1.6)) / 60.0);
       if (pf.y > yF) {
-        vec3 m = C_INK2 * 0.7;
-        m = hatch(m, pf.y, yF, H0 + 20.0, C_BONE * 0.1);
-        m += C_BONE * pxLine(pf.y - yF, 1.2) * 0.35;
+        float dpth = pf.y - yF;
+        // rock in aerial perspective: cool and faint at the top, warmer and darker toward the foot
+        vec3 m = mix(vec3(0.02, 0.019, 0.022), vec3(0.016, 0.013, 0.012), smoothstep(yF, H0 + 20.0, pf.y));
+        // gullies and spurs running down the slopes (a rotated, stretched noise: no grid), lit from the left
+        mat2 R = mat2(0.94, 0.34, -0.34, 0.94);
+        vec2 gq = R * vec2(pf.x / 34.0, (pf.y - yF) / 120.0) + 5.0;
+        float gn = fbm(gq, 4), gl = fbm(gq - R * vec2(4.0 / 30.0, 0.0), 4);
+        m *= 0.86 + 0.28 * sat(0.5 + (gl - gn) * 4.0);
+        // faint strata, gently tilted and bent by the folds
+        float sw = (pf.y - pf.x * 0.06 + 30.0 * fbm(vec2(pf.x / 260.0, 2.0), 3)) / 16.0;
+        m *= 0.94 + 0.1 * smoothstep(0.25, 0.75, 0.5 + 0.5 * sin(sw * 6.2832));
+        // the dusk catches the ridge line
+        m += mix(C_TERRACOTTA, C_OCHRE, 0.4) * 0.07 * exp(-dpth / 5.0) * (1.0 - sat(fireL));
+        m += C_BONE * pxLine(dpth, 1.2) * 0.3;
+        // the volcano: a crater rim that glows, lava running down in tongues that cool from yellow to red
+        float vx = pf.x - 560.0;
+        if (abs(vx) < 260.0) {
+          float rim = exp(-pow(dpth / 7.0, 2.0)) * smoothstep(48.0, 10.0, abs(vx));
+          float flick = 0.75 + 0.25 * sin(t * 5.0 + vx * 0.1) * vnoise(vec2(vx / 9.0, t * 2.0));
+          m += lavaC * rim * 0.8 * flick;
+          float lava = 0.0;
+          for (int k = 0; k < 4; k++) {
+            float fk = float(k);
+            float x0 = -26.0 + fk * 17.0 + 6.0 * hash12(vec2(fk, 1.0));
+            float run = 70.0 + 120.0 * hash12(vec2(fk, 2.0));
+            float xs = x0 + (fk - 1.5) * dpth * 0.55 + 7.0 * sin(dpth / 17.0 + fk * 2.0);
+            float w = 2.4 * (1.0 - dpth / run) + 0.6;
+            float on = smoothstep(run, run * 0.6, dpth);
+            lava = max(lava, exp(-pow((vx - xs) / w, 2.0)) * on * (0.6 + 0.4 * vnoise(vec2(dpth / 6.0 - t * 1.5, fk))));
+          }
+          vec3 lc = mix(vec3(1.4, 0.18, 0.03), vec3(2.6, 1.1, 0.25), sat(1.0 - dpth / 90.0));
+          m += lc * lava * 0.7;
+          m += lavaC * 0.02 * exp(-abs(vx) / 50.0) * exp(-dpth / 90.0);   // the slopes lit by the lava
+        }
         // back-lit by the fire: the ridge line glows, the face facing us stays dark
         m += warmL * fireL * 0.5 * exp(-max(0.0, pf.y - yF) / 5.0) * exp(-abs(px.x - I.x) / 520.0);
         c = m;
@@ -217,13 +292,25 @@ export default class SceneDinoEra extends PanelScene {
       }
       // ---- mid hills ----
       vec2 pm = cam(px, 0.45);
-      float yM = ridgeTex(pm.x, 1.0);
-      if (pm.y > yM) {
+      float yM0 = ridgeTex(pm.x, 1.0);
+      float tLit;
+      float dT = tree(pm.x, yM0 - pm.y, tLit);
+      if (pm.y > yM0 || dT < 1.0) {
         vec3 m = mix(C_INK2, C_WARMINK, 0.5) * 0.9;
-        m = hatch(m, pm.y, yM, H0 + 60.0, C_BONE * 0.08);
-        m += C_BONE * pxLine(pm.y - yM, 1.2) * 0.45;
-        m += warmL * fireL * 0.22 * exp(-max(0.0, pm.y - yM) / 9.0) * exp(-abs(px.x - I.x) / 700.0);
-        c = m;
+        // the hillside: dark olive scrub, mottled
+        m = mix(m, vec3(0.016, 0.02, 0.012), 0.6) * (0.8 + 0.4 * fbm(pm / 18.0, 3));
+        m = hatch(m, pm.y, yM0, H0 + 60.0, C_BONE * 0.07);
+        // the forest: dark green, the lit side of each tree a little paler
+        float inTree = smoothstep(1.0, -1.0, dT) * step(pm.y, yM0 + 2.0);
+        vec3 tc = vec3(0.01, 0.017, 0.011) * (0.75 + 0.5 * tLit) * (0.85 + 0.3 * vnoise(pm / 3.0));
+        m = mix(m, tc, inTree);
+        float edge = pm.y > yM0 ? pxLine(pm.y - yM0, 1.2) * step(1.0, dT) : 0.0;
+        m += C_BONE * (edge * 0.4 + pxLine(dT, 1.1) * 0.22 * step(pm.y, yM0 + 1.0));
+        float yM = yM0;
+        float cover = pm.y > yM0 ? 1.0 : smoothstep(1.0, -1.0, dT);
+        float fromEdge = inTree > 0.5 ? max(0.0, -dT) : max(0.0, pm.y - yM);   // the backlit rim of a tree or of the hill
+        m += warmL * fireL * 0.22 * exp(-fromEdge / 4.0) * exp(-abs(px.x - I.x) / 700.0);
+        c = mix(c, m, cover);
       }
       // ---- ground: perspective contours over gentle bumps ----
       vec2 pg = cam(px, 1.0);
@@ -233,8 +320,35 @@ export default class SceneDinoEra extends PanelScene {
         vec2 wp = vec2((pg.x - 960.0) * z / 600.0, z);
         float hgt = fbm(wp * vec2(1.4, 0.9) + 2.0, 4);
         vec3 g = mix(C_WARMINK * 0.9, C_WARMINK * 1.5, smoothstep(H0 + 40.0, 1080.0, pg.y));
+        // patches: olive scrub, bare earth, darker moss; grass blades and stones up close
+        float pat = fbm(wp * vec2(2.2, 1.6) + 9.0, 4);
+        g = mix(g, vec3(0.03, 0.033, 0.016), smoothstep(0.45, 0.65, pat) * 0.8);
+        g = mix(g, vec3(0.04, 0.026, 0.016), smoothstep(0.42, 0.25, pat) * 0.7);
+        float nearG = smoothstep(H0 + 120.0, 1080.0, pg.y);
+        vec2 bc = vec2(pg.x / 3.0, pg.y / 9.0);
+        float blade = step(0.62, hash12(floor(bc))) * smoothstep(0.5, 0.0, abs(fract(bc.x) - 0.5 + (fract(bc.y) - 0.5) * 0.3)) * fract(bc.y);
+        g *= 1.0 + 0.5 * blade * nearG * smoothstep(0.4, 0.6, pat);
+        vec2 sc = wp * vec2(9.0, 7.0);
+        vec2 si = floor(sc), sf = fract(sc) - 0.5 - (hash22(si) - 0.5) * 0.5;
+        float stone = smoothstep(0.16, 0.12, length(sf * vec2(1.0, 1.6))) * step(0.9, hash12(si + 4.0)) * smoothstep(H0 + 70.0, H0 + 200.0, pg.y);
+        g = mix(g, vec3(0.06, 0.055, 0.05) * (0.6 + 0.8 * sat(-sf.y * 3.0 + 0.5)), stone);
         float lv = log(dy) * 5.0 + hgt * 2.2;
         g += mix(C_BONE, C_WARMBONE, 0.5) * isoLine(lv, 1.0, 0.8) * 0.13 * smoothstep(H0 + 12.0, H0 + 80.0, pg.y);
+        // a still pond in the middle distance: it mirrors the dusk sky, the falling meteor and the fire
+        vec2 pd = (pg - vec2(560.0, 712.0)) / vec2(230.0, 24.0);
+        float pn = fbm(pg / 60.0 + 3.0, 3) * 0.5;
+        float pond = smoothstep(1.0 + pn, 0.9 + pn, length(pd));
+        if (pond > 0.0) {
+          float my = 2.0 * H0 - pg.y;                                           // the mirrored sky
+          vec3 refl = mix(C_INK * 0.55, mix(C_TERRACOTTA, C_OCHRE, 0.35) * 0.06, smoothstep(140.0, H0 + 20.0, my)) + vec3(0.004, 0.006, 0.01);
+          vec2 mp = vec2(px.x, 2.0 * H0 - px.y);
+          refl += vec3(1.0, 0.7, 0.4) * mBright * exp(-length(mp - mtr[0]) / 160.0) * 0.4;
+          refl += warmL * fireL * exp(-length((mp - I) * vec2(1.0, 0.7)) / 240.0) * 0.5;
+          refl *= 0.85 + 0.15 * sin(pg.y * 0.8 + t * 2.0 + 4.0 * vnoise(pg / 40.0));   // ripples
+          refl += C_BONE * 0.03 * smoothstep(0.8, 0.95, vnoise(vec2(pg.x / 26.0 - t * 0.3, pg.y / 2.0)));   // glints on the water
+          g = mix(g, refl, pond * 0.9);
+          g += C_BONE * 0.12 * pxLine((length(pd) - 1.0 - pn) * 24.0, 1.0);
+        }
         g += warmL * fireL * 0.07 * exp(-dI / 650.0) + vec3(1.0, 0.7, 0.4) * mBright * 0.03;
         c = mix(c, g, smoothstep(H0 + 12.0, H0 + 16.0, pg.y));
       }
