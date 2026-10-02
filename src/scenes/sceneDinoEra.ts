@@ -213,6 +213,14 @@ export default class SceneDinoEra extends PanelScene {
         float W = 1150.0 * (1.0 - exp(-k * 1.1));
         float dx = abs(px.x - I.x);
         float tex = fbm(vec2(px.x / 70.0 - k * 0.9 * sign(px.x - I.x), px.y / 45.0 + k * 0.4), 5);
+        // the texture flows outwards on each side of the impact: crossfade the two flows over ±50 px about I.x so
+        // there is no step where they meet (variance-preserving; unchanged outside that band)
+        if (dx < 50.0) {
+          float w = smoothstep(-50.0, 50.0, px.x - I.x);
+          float tl = fbm(vec2(px.x / 70.0 + k * 0.9, px.y / 45.0 + k * 0.4), 5);
+          float tr = fbm(vec2(px.x / 70.0 - k * 0.9, px.y / 45.0 + k * 0.4), 5);
+          tex = 0.484 + ((1.0 - w) * (tl - 0.484) + w * (tr - 0.484)) / sqrt((1.0 - w) * (1.0 - w) + w * w);
+        }
         float hgt = (40.0 + 150.0 * k) * sqrt(sat(1.0 - dx / max(W, 1.0))) * (0.75 + 0.5 * tex);
         float top = H0 + 14.0 - hgt;
         float dens = smoothstep(top - 8.0, top + 22.0, px.y) * step(px.y, H0 + 80.0) * (0.55 + 0.45 * tex);
