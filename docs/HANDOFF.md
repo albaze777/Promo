@@ -89,6 +89,16 @@ session; nothing here is an estimate unless it says so.
   - Measured cost (4 sub-frames, warm, this container; before → after this round): planet/map frame (9.5 s)
     ≈ 4.3 s → 7.1 s, wheel frame (58.5 s) ≈ 6.0 s → 7.3 s, dino frame (41.9 s) ≈ 8.1 s → 9.4 s.
 
+- Fifth round (more detail on the ape, the human, the Earth, the environment):
+  - `figure.ts` (NB 52 → 72): thigh and hamstring muscles, kneecap, heel, a second toe, the ape's grasping big
+    toe, four separate fingers, buttocks, chest and shoulder blade on the upright forms; ape face with mouth line
+    and nostrils on the muzzle; human nostrils and ear hollow. Fixed: the calf sat on the front of the shin.
+    The evolution human now wears the spotted pelt.
+  - Earth seen whole: savanna and sand-desert belts, softer contour lines so the colours read, a brighter surface,
+    wispy banded clouds with two spiral storms.
+  - Close above the ground (03a): tree crowns, shrubs and rocks with shadows, panning and zooming with the map.
+  - Measured cost: planet/map frame (9.5 s, 4 sub-frames, warm) ≈ 7.1 s → 8.1 s.
+
 ## Not done / remaining
 
 1. **The current version has not been fully rendered.** At the pause, `out/segments_v2/` (gitignored, only

@@ -96,7 +96,7 @@ export interface Look {
   /** red-ochre paint: a stripe on the cheek */
   paint?: boolean;
 }
-export const LOOK_DEFAULT: Look = { paint: true };
+export const LOOK_DEFAULT: Look = { paint: true, pelt: true };
 
 export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {}): Pose {
   const P = params(m);
@@ -163,13 +163,23 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
   // limbs, far side first: thigh, calf muscle, shin, heel, foot, toes; deltoid, upper arm, forearm, palm, fingers, thumb
   const limbs = (i: number, s: number) => {
     const l = legs[i]!, a = arms[i]!;
-    const dS = unit(l.knee, l.ankle), back = perp(dS);
+    // (perp of the shin, which points down, is the front of the leg)
+    const dS = unit(l.knee, l.ankle), front = perp(dS), back: P2 = [-front[0], -front[1]];
     push(l.hip, l.knee, (0.052 + 0.012 * q) * s, (0.038 + 0.006 * q) * s);
-    push(add(l.knee, dS, 0.035), add(add(l.knee, dS, 0.12), back, 0.012), (0.036 + 0.004 * q) * s, 0.028 * s, FUR, 0.01);
+    // the thigh's front muscle and the hamstring behind it
+    const dTh = unit(l.hip, l.knee), thF = perp(dTh);
+    push(add(add(l.hip, dTh, 0.06), thF, 0.012), add(add(l.hip, dTh, 0.17), thF, 0.008), 0.042 * s, 0.03 * s, FUR, 0.014);
+    // the calf behind the shin, the kneecap in front of it
+    push(add(l.knee, dS, 0.035), add(add(l.knee, dS, 0.12), back, 0.012), (0.036 + 0.004 * q) * s, 0.026 * s, FUR, 0.01);
+    push(add(l.knee, front, 0.022), add(add(l.knee, front, 0.022), dS, 0.012), 0.017 * s, 0.015 * s, FUR, 0.008);
     push(l.knee, l.ankle, (0.034 + 0.006 * q) * s, 0.022 * s);
     const dF = unit(l.ankle, l.toe);
     push(add(l.ankle, dF, -0.012), l.toe, 0.024 * s, 0.017 * s, SKIN, 0.008);
+    push(add(l.ankle, dF, -0.016), add(add(l.ankle, dF, -0.016), [0, -1], 0.008), 0.021 * s, 0.02 * s, SKIN, 0.006);   // the heel
     push(l.toe, add(l.toe, dF, 0.018), 0.013 * s, 0.01 * s, SKIN, 0.004);
+    push(add(l.toe, [0, 1], 0.004), add(add(l.toe, dF, 0.012), [0, 1], 0.005), 0.0095 * s, 0.008 * s, SKIN, 0.003);  // the next toe
+    // the ape's grasping big toe, set apart from the others
+    if (q > 0.05) { const bt = add(l.ankle, dF, 0.035); push(bt, add(add(bt, dF, 0.03), [0, -1], 0.012), 0.012 * q * s, 0.009 * q * s, SKIN, 0.004); }
     push(a.sh, add(a.sh, unit(a.sh, a.el), 0.01), (0.043 + 0.012 * q) * s, (0.04 + 0.01 * q) * s);
     push(a.sh, a.el, (0.034 + 0.02 * q) * s, (0.027 + 0.01 * q) * s);
     push(a.el, a.wr, (0.028 + 0.012 * q) * s, (0.02 + 0.006 * q) * s);
@@ -181,8 +191,11 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
       push(palmEnd, a.tip, 0.009 * s, 0.0065 * s, SKIN, 0.003);
       push(palmEnd, add(add(palmEnd, dH, 0.016), side, -0.014), 0.012 * s, 0.01 * s, SKIN, 0.004);
     } else {
-      push(palmEnd, add(a.tip, side, 0.002), (0.013 + 0.004 * q) * s, (0.009 + 0.004 * q) * s, SKIN, 0.004);
-      push(palmEnd, add(add(palmEnd, dH, 0.02 + 0.012 * q), side, -0.012), (0.012 + 0.003 * q) * s, 0.009 * s, SKIN, 0.004);
+      // four fingers fanned slightly, each a little shorter toward the outside
+      for (let f = 0; f < 4; f++) {
+        const off = -0.011 + f * 0.0075, shorten = 0.006 * Math.abs(f - 1.3);
+        push(add(palmEnd, side, off * 0.8), add(add(a.tip, side, off), dH, -shorten), (0.0085 + 0.003 * q) * s, (0.0065 + 0.003 * q) * s, SKIN, 0.003);
+      }
     }
     push(add(a.wr, side, 0.012), add(add(a.wr, side, 0.024), dH, 0.03), 0.009 * s, 0.007 * s, SKIN, 0.004);
   };
@@ -192,7 +205,13 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
   push(pelvis, add(pelvis, dT, 0.001), P.rPelvis, P.rPelvis, FUR, 0.03);
   push(pelvis, add(pelvis, dT, P.torso * 0.5), P.rPelvis * 0.98, (P.rPelvis + P.rChest) * 0.5, FUR, 0.03);
   push(add(pelvis, dT, P.torso * 0.45), chest, (P.rPelvis + P.rChest) * 0.5, P.rChest, FUR, 0.03);
-  push(add(add(pelvis, bk, -0.035), dT, -0.01), add(add(pelvis, bk, -0.035), dT, -0.009), 0.055, 0.055, FUR, 0.02);
+  push(add(add(pelvis, bk, -0.035), dT, -0.01), add(add(pelvis, bk, -0.035), dT, -0.009), 0.055 - 0.012 * (1 - q), 0.055 - 0.012 * (1 - q), FUR, 0.02);   // the belly
+  const up01 = 1 - q;                                  // what the upright forms gain: buttocks, a chest, a navel
+  if (up01 > 0.05) {
+    push(add(add(pelvis, bk, 0.03), dT, -0.015), add(add(pelvis, bk, 0.03), dT, -0.014), 0.05 * up01, 0.05 * up01, FUR, 0.02);
+    push(add(add(chest, dT, -0.035), bk, -P.rChest * 0.5), add(add(chest, dT, -0.05), bk, -P.rChest * 0.52), 0.045 * up01, 0.04 * up01, FUR, 0.02);
+    push(add(add(chest, dT, -0.01), bk, P.rChest * 0.45), add(add(chest, dT, -0.07), bk, P.rChest * 0.42), 0.04 * up01, 0.035 * up01, FUR, 0.02);   // the shoulder blade
+  }
   // loincloth on the upright form
   const look = o.look ?? LOOK_DEFAULT;
   if (human > 0.01) push(add(pelvis, dT, 0.01), add(add(pelvis, dT, -0.09), bk, 0.012), P.rPelvis * 1.05 * human, P.rPelvis * 0.8 * human, look.pelt ? PELT : CLOTH, 0.006);
@@ -213,7 +232,19 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
   const noseP = add(add(head, fwd, P.headR * (0.95 + 0.25 * P.muzzle)), down, P.headR * 0.05);
   push(noseP, add(noseP, down, P.headR * 0.22), P.headR * (0.1 + 0.12 * human), P.headR * (0.14 + 0.08 * human), SKIN, 0.004);
   const earP = add(head, [-fwd[0], -fwd[1]], P.headR * 0.15);
-  push(earP, add(earP, down, P.headR * 0.12), P.headR * 0.2, P.headR * 0.16, SKIN, 0.003);
+  push(earP, add(earP, down, P.headR * 0.12), P.headR * (0.2 + 0.06 * q), P.headR * (0.16 + 0.05 * q), SKIN, 0.003);
+  if (human > 0.5) push(add(earP, down, P.headR * 0.03), add(earP, down, P.headR * 0.1), P.headR * 0.06, P.headR * 0.045, DARK, -1);   // the ear's hollow
+  // nostrils: on the tip of the ape's muzzle, under the human's nose
+  const rEnd = P.headR * (0.34 + 0.22 * P.muzzle);
+  const nosA = add(add(faceEnd, fwd, rEnd * 0.55), dN, rEnd * 0.2), nosH = add(add(noseP, down, P.headR * 0.2), fwd, P.headR * 0.02);
+  const nos: P2 = [lerp(nosA[0], nosH[0], human), lerp(nosA[1], nosH[1], human)];
+  push(nos, add(nos, fwd, P.headR * 0.05), P.headR * (0.06 - 0.02 * human), P.headR * (0.05 - 0.02 * human), DARK, -1);
+  // the ape's mouth: a long line between the muzzle and the jaw
+  if (human < 0.99) {
+    const m0 = add(add(faceEnd, down, P.headR * 0.3), fwd, -P.headR * 0.35), m1 = add(add(faceEnd, down, P.headR * 0.22), fwd, rEnd * 0.45);
+    push(m0, m1, P.headR * 0.02 * (1 - human), P.headR * 0.018 * (1 - human), DARK, -1);
+  }
+
   const eyeP = add(add(head, fwd, P.headR * 0.72), browD, P.headR * 0.12);
   push(eyeP, add(eyeP, fwd, 1e-4), P.headR * 0.12, P.headR * 0.12, human > 0.5 ? EYE_H : EYE, -1);
   // hair: a cap over the crown and the back of the head, clear of the face
@@ -247,6 +278,6 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
 
 /** Reach direction of the near arm (from straight down, forward positive): 30° below horizontal. */
 export const REACH_ANG = Math.PI / 2 - Math.PI / 6;
-export const NB = 52;
+export const NB = 72;
 
 export const _ = { smoothstep };

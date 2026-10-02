@@ -239,7 +239,12 @@ export class TopoPass {
       vec3 rock = mix(vec3(0.016, 0.014, 0.012), vec3(0.03, 0.026, 0.021), smoothstep(0.0, 0.6, el)) * (0.85 + 0.3 * tex);
       vec3 veg = mix(vec3(0.014, 0.027, 0.012), vec3(0.03, 0.03, 0.013), smoothstep(0.08, 0.38, el - 0.12 * (moist - 0.5)));
       veg = mix(veg, vec3(0.034, 0.024, 0.016), smoothstep(0.4, 0.65, el));
-      float forest = smoothstep(0.52, 0.64, moist * 0.55 + fpatch * 0.45) * (1.0 - smoothstep(0.35, 0.55, el)) * smoothstep(0.0, 0.03, hs);
+      // dry belts either side of the equator: savanna, then sand deserts with dunes
+      float lat = abs(normalize(p).y);
+      float dry = smoothstep(0.42, 0.25, moist + 0.25 * (1.0 - smoothstep(0.15, 0.45, abs(lat - 0.42)))) * (1.0 - smoothstep(0.3, 0.5, el));
+      vec3 sand = vec3(0.07, 0.05, 0.028) * (0.85 + 0.25 * sin(dot(p, vec3(40.0, 0.0, 30.0)) * fz * 0.02 + tex * 2.0));
+      veg = mix(veg, mix(vec3(0.042, 0.036, 0.018), sand, smoothstep(0.4, 0.9, dry)), smoothstep(0.1, 0.5, dry));
+      float forest = smoothstep(0.52, 0.64, moist * 0.55 + fpatch * 0.45) * (1.0 - smoothstep(0.35, 0.55, el)) * smoothstep(0.0, 0.03, hs) * (1.0 - smoothstep(0.1, 0.4, dry));
       float stip = smoothstep(0.58 - texW, 0.66 + texW, tex);
       veg = mix(veg, vec3(0.006, 0.016, 0.007), forest * (0.45 + 0.55 * stip));
       vec3 ground = mix(rock, veg, aliveK);
@@ -247,6 +252,33 @@ export class TopoPass {
       ground = mix(ground, vec3(0.1, 0.1, 0.1), smoothstep(0.86, 0.94, el + 0.08 * (tex - 0.5)));  // snow on the peaks
       ground = mix(ground, mix(ground, C_WARMBONE * 0.045, 0.5), warm * 0.6);
       vec3 base = mix(ocean, ground * (0.55 + 0.9 * shade), land01);
+      // seen from close above: tree crowns in the forests and scattered shrubs and rocks in the open, each with a
+      // shadow to the lower right (cells in map space, so they pan and zoom with the ground)
+      if (near > 0.0 && land01 > 0.0) {
+        for (int k = 0; k < 2; k++) {
+          float cs = k == 0 ? 15.0 : 30.0;                     // two sizes, cross-faded with the zoom
+          float wk = k == 0 ? 1.0 - fineK : fineK;
+          vec2 g = m1 / cs, gi = floor(g);
+          vec2 o = hash22(gi + float(k) * 17.0) * 0.6 + 0.2;
+          vec2 d = (g - gi - o) * cs;
+          float hsh = hash12(gi + 3.0 + float(k) * 9.0);
+          float treeK = forest * aliveK;
+          float isTree = step(1.0 - smoothstep(0.0, 0.6, treeK) * 0.9, hsh);
+          float isBush = step(0.8, hsh) * (1.0 - isTree) * aliveK * (1.0 - smoothstep(0.4, 0.6, el)) * (1.0 - pole);
+          float isRock = step(hash12(gi + 11.0), 0.05) * (1.0 - isTree) * (1.0 - isBush);
+          float r = cs * (isTree > 0.5 ? 0.36 + 0.1 * hash12(gi + 5.0) : isBush > 0.5 ? 0.18 : 0.14);
+          float on = max(isTree, max(isBush, isRock)) * wk * near * land01 * smoothstep(0.0, 0.01, hs);
+          if (on <= 0.0) continue;
+          float ds = length(d - vec2(r * 0.35, r * 0.45)) - r;      // the shadow
+          base *= 1.0 - 0.65 * on * smoothstep(1.0, -1.5, ds);
+          float dc = length(d) - r;
+          vec3 col = isRock > 0.5 ? vec3(0.09, 0.085, 0.078) : isTree > 0.5 ? vec3(0.016, 0.05, 0.018) : vec3(0.045, 0.06, 0.02);
+          float lit = sat(0.55 - dot(d / max(r, 1.0), vec2(0.6, 0.6)) * 0.6);      // lit from the upper left
+          col *= 0.45 + 1.4 * lit;
+          col *= 0.85 + 0.3 * vnoise(d * 0.6 + gi);                               // leaf clumps
+          base = mix(base, col, on * smoothstep(1.0, -1.0, dc));
+        }
+      }
       // rivers: meandering lines that run through the lowlands to the sea
       float rwid = min(0.0035, rvW * 1.6);
       float lowland = land01 * (1.0 - smoothstep(0.1, 0.3, el)) * smoothstep(0.35, 0.6, moist + 0.2);
@@ -258,7 +290,7 @@ export class TopoPass {
       // contours: major + minor levels, cross-faded so the zoom reveals ever finer lines
       float cMaj = iso(h - sea, stepU, 1.05);
       float cMin = iso(h - sea, stepF, 0.8) * fineK;
-      float lineK = mix(0.10, 0.34, land01);
+      float lineK = mix(0.10, 0.34, land01) * mix(0.55, 1.0, smoothstep(0.3, 1.5, lvl));
       vec3 lineC = mix(C_BONE, C_WARMBONE, warm);
       float lines = (cMaj * lineK + cMin * lineK * 0.45);
       // terrain recedes while the hand is present
@@ -361,13 +393,26 @@ export class TopoPass {
         float glint = pow(sat(dot(reflect(-L, nw), vec3(0.0, 0.0, 1.0))), 60.0) * (1.0 - land01) * (1.0 - pole);
         c += vec3(1.0, 0.9, 0.75) * glint * 0.5 * whole;
         vec3 pc = p + vec3(time * 0.03, 0.0, 0.0);
-        float cn = vnoise3(pc * 4.0) * 0.55 + vnoise3(pc * 9.0 + 4.0) * 0.3 + vnoise3(pc * 21.0 + 7.0) * 0.15;
+        // two storms: the sample point spirals around their centres
+        for (int k = 0; k < 2; k++) {
+          // (centres on the visible hemisphere: view directions taken into body coordinates)
+          vec3 sc = normalize(rot * normalize(k == 0 ? vec3(-0.35, 0.3, 0.88) : vec3(0.3, -0.45, 0.84)));
+          float ds = length(normalize(p) - sc);
+          float tw = exp(-ds * ds / 0.045) * 5.0 * (k == 0 ? 1.0 : -1.0) * (1.0 - 0.5 * ds);
+          vec3 ax = sc;
+          float ca = cos(tw), sa = sin(tw);
+          vec3 q0 = pc - ax * dot(pc, ax);
+          pc = ax * dot(pc, ax) + q0 * ca + cross(ax, q0) * sa;
+        }
+        float band = 0.12 * sin(normalize(p).y * 18.0 + vnoise3(p * 3.0) * 4.0);   // trade-wind streaks
+        float cn = vnoise3(pc * vec3(5.0, 9.0, 5.0)) * 0.45 + vnoise3(pc * vec3(12.0, 20.0, 12.0) + 4.0) * 0.3 + vnoise3(pc * 30.0 + 7.0) * 0.15 + vnoise3(pc * 64.0 + 2.0) * 0.08 + band;
         float cs = vnoise3((pc + vec3(0.03, -0.02, 0.0)) * 4.0) * 0.55 + vnoise3((pc + vec3(0.03, -0.02, 0.0)) * 9.0 + 4.0) * 0.3;
         float clear = smoothstep(0.12, 0.3, ang);                // keep the touchdown point clear of cloud
-        float cloud = smoothstep(0.63, 0.78, cn) * clear * whole;
+        float cloud = smoothstep(0.58, 0.8, cn) * clear * whole;
         float shadow = smoothstep(0.6, 0.74, cs) * clear * whole;
         c *= 1.0 - shadow * 0.3;
-        c = mix(c, vec3(0.2, 0.198, 0.195), cloud * 0.55);
+        c *= 1.0 + 0.6 * whole * (1.0 - cloud);                  // seen whole, the surface reads brighter
+        c = mix(c, vec3(0.3, 0.3, 0.3) * (0.7 + 0.45 * smoothstep(0.63, 0.9, cn)), cloud * 0.75);
         c = mix(c, vec3(0.5, 0.62, 0.8) * 0.06, pow(1.0 - nv.z, 3.0) * 0.6 * atmo * whole);
       }
       c *= sphereLit;
