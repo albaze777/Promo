@@ -175,7 +175,15 @@ export default class SceneDinoEra extends PanelScene {
         vec2 q = px - F;
         float ang = atan(q.y, q.x);
         float rr = length(q * vec2(1.0, 1.12));
-        float nb = fbm(vec2(ang * 2.2, ti * 1.4) + q / 85.0 - vec2(0.0, ti * 1.3), 5);
+        vec2 nq = vec2(0.0, ti * 1.4) + q / 85.0 - vec2(0.0, ti * 1.3);
+        float nb = fbm(vec2(ang * 2.2, 0.0) + nq, 5);
+        // atan jumps from +PI to -PI left of the centre: blend into the wrapped lookup over the last 0.6 rad so the
+        // edge noise is continuous there (variance-preserving, so the wedge is as ragged as the rest of the edge)
+        float wrap = smoothstep(PI - 0.6, PI, ang);
+        if (wrap > 0.0) {
+          float nw = fbm(vec2((ang - TAU) * 2.2, 0.0) + nq, 5);
+          nb = 0.484 + ((1.0 - wrap) * (nb - 0.484) + wrap * (nw - 0.484)) / sqrt((1.0 - wrap) * (1.0 - wrap) + wrap * wrap);
+        }
         float edge = Rf * (0.72 + 0.5 * nb);
         float dens = smoothstep(edge, edge * 0.72, rr);
         float T = sat((1.0 - rr / edge) * 1.35 + 0.4 * (fbm(q / 30.0 + vec2(0.0, ti * 3.0), 4) - 0.5) + 0.35 - ti * 0.32);
