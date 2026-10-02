@@ -43,3 +43,14 @@ export abstract class Scene {
 }
 
 export type SceneClass = new (ctx: SceneCtx) => Scene;
+
+/**
+ * A scene that lives inside a gallery panel (05a–05c). The gallery host renders it into its own target
+ * (full 1920×1080 frame; the panel shows its central 4:3 crop until the camera arrives and the frame opens
+ * to 16:9), zooms into and out of it, and hands the line over: while the host carries the head (`drawHead`
+ * false), the panel scene must not draw it, and `headAt(t)` tells the host where it is in frame px.
+ */
+export abstract class PanelScene extends Scene {
+  drawHead = true;
+  abstract headAt(t: number): [number, number];
+}

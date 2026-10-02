@@ -4,13 +4,13 @@
 // from behind it. Tagline, URL, hold.
 import * as THREE from 'three';
 import { Scene, type Frame } from '../engine/scene';
-import { FSPass, Layer2D } from '../engine/gl';
+import { FSPass, Layer2D, makeRT } from '../engine/gl';
 import { LineBatch } from '../engine/lines';
 import { LineMotif, RED, BONE, rgba, arc } from '../motifs/line';
 import { setText, measure, type TextStyle } from '../typography/fonts';
 import { BRAND } from '../brand';
-import { CUE } from '../timeline/cues';
-import { clamp, ease, lerp, smoothstep, TAU } from '../utils/math';
+import { CUE, DURATION } from '../timeline/cues';
+import { clamp, ease, lerp, smoothstep, TAU, hash } from '../utils/math';
 
 const T0 = CUE.collapse, T_POINT = CUE.collapse + 0.34, T_RING = CUE.ring, T_RING_END = CUE.ring + 0.42;
 const T_WORD = CUE.wordmark, T_TAG = CUE.tagline, T_URL = CUE.url;
@@ -23,6 +23,8 @@ export default class SceneOutro extends Scene {
   ring = new LineBatch(2048, { blend: 'normal' });
   motif = new LineMotif();
   ui = new Layer2D();
+  dust = new LineBatch(128, { soft: true });
+  tmp = makeRT();
   // wordmark geometry (measured from the font at init)
   WM: TextStyle = { fam: 'display', px: 172, weight: 600, track: -0.012 };
   wm = { x0: 0, base: 0, oCx: 0, oCy: 0, oR: 0, stem: 0, restX: 0, total: 0 };
@@ -68,9 +70,23 @@ export default class SceneOutro extends Scene {
     };
   }
 
-  render(f: Frame, out: THREE.WebGLRenderTarget) {
+  render(f: Frame, final: THREE.WebGLRenderTarget) {
     const r = this.ctx.renderer, t = f.t;
+    // the card is drawn into a buffer, then placed with a slow push: the hold is never still
+    const out = this.tmp;
     this.bg.render(r, out);
+    // faint dust drifting up through the dark
+    const dk = smoothstep(T_WORD + 0.3, T_TAG + 0.8, t);
+    if (dk > 0) {
+      const D = this.dust;
+      D.clear();
+      for (let i = 0; i < 70; i++) {
+        const x = hash(i, 1) * 1920 + 14 * Math.sin(t * 0.35 + i), y = ((hash(i, 2) * 1180 - 11 * t) % 1180 + 1180) % 1180 - 50;
+        const a = (0.05 + 0.08 * hash(i, 3)) * dk * (0.6 + 0.4 * Math.sin(t * 0.8 + i * 1.7));
+        D.dot(x, y, 2 + 4 * hash(i, 4), rgba(BONE, 1, a));
+      }
+      D.render(r, out);
+    }
 
     // ---- collapse: the whole previous image returns into the point ----
     if (f.under && t < T_POINT) {
@@ -141,8 +157,12 @@ export default class SceneOutro extends Scene {
     const flare = t > T_POINT - 0.08 ? Math.exp(-Math.max(0, t - T_POINT) / 0.1) * smoothstep(T_POINT - 0.1, T_POINT, t) : 0;
     const coll = smoothstep(T_POINT - 0.12, T_POINT, t);
     const dotSize = lerp(1, (w.stem * 0.9) / 9, rs.k);
-    m.head(hx, hy, lerp(1.1, 0.24, settle) * coll + 1.6 * flare, dotSize * (1 + 0.6 * flare));
+    const breathe = 1 + 0.18 * settle * Math.sin((t - T_RING_END) * 2.4);
+    m.head(hx, hy, lerp(1.1, 0.24, settle) * coll * breathe + 1.6 * flare, dotSize * (1 + 0.6 * flare) * (1 + 0.04 * settle * Math.sin((t - T_RING_END) * 2.4)));
     m.render(r, out);
+
+    const push = 1 + 0.045 * ease.inOutSine(clamp((t - (T_WORD + 0.5)) / (DURATION - T_WORD - 0.5)));
+    this.ctx.comp.draw(r, out.texture, final, { mode: 'replace', scale: push, origin: [960, 560], premult: true });
 
     return { bloom: 0.55, bloomThreshold: 0.9, vignette: 0.42, grain: 0.035, warmth: 0 };
   }

@@ -36,6 +36,8 @@ export const ease = {
   },
   outBack: (x: number) => { x = clamp(x); const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2; },
   inOutSine: (x: number) => -(Math.cos(Math.PI * clamp(x)) - 1) / 2,
+  inSine: (x: number) => 1 - Math.cos((Math.PI * clamp(x)) / 2),
+  outSine: (x: number) => Math.sin((Math.PI * clamp(x)) / 2),
 } satisfies Record<string, EaseFn>;
 
 /** Progress of t through [a,b], eased. */
