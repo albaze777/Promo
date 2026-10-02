@@ -50,7 +50,9 @@ export default class SceneDinoEra extends PanelScene {
   ferns = new LineBatch(9000);
   front = new LineBatch(6000);
   fx = new LineBatch(4000);
+  sky = new LineBatch(1200, { blend: 'normal' });
   fxRT = makeRT();
+  skyRT = makeRT();
   motif = new LineMotif();
   fernSet: { x: number; y: number; h: number; lean: number; n: number; ph: number; front: boolean }[] = [];
   ejecta: { a: number; v: number; size: number; big: boolean }[] = [];
@@ -59,7 +61,7 @@ export default class SceneDinoEra extends PanelScene {
     uniform float t, camS, camX, heat, mBright;
     uniform vec4 mBox, sBox; uniform vec4 gBox[8]; uniform vec2 gRange[8];
     uniform vec2 mtr[${NFIRE}]; uniform vec3 smk[${NSMOKE}];
-    uniform sampler2D ridges, fx;
+    uniform sampler2D ridges, fx, skyL;
     ${BODY_COMMON_GLSL}
     ${bodyGLSL('cr', NS + NR)}
     const vec2 I = vec2(${I[0].toFixed(1)}, ${I[1].toFixed(1)});
@@ -226,6 +228,9 @@ export default class SceneDinoEra extends PanelScene {
         // burning debris and the meteor's sparks (rendered beforehand, hidden by the ridge below)
         c += texture(fx, vUv).rgb;
       } else c += texture(fx, vUv).rgb;
+      // the fliers (dark silhouettes, premultiplied), behind the ridges and the creatures
+      vec4 fl = texture(skyL, vUv);
+      c = c * (1.0 - fl.a) + fl.rgb;
       // ---- far ridge + volcano (contour hatched), its plume drifting ----
       vec2 pf = cam(px, 0.15);
       float yF = ridgeTex(pf.x, 0.0);
@@ -378,7 +383,7 @@ export default class SceneDinoEra extends PanelScene {
     mBox: { value: new THREE.Vector4() }, sBox: { value: new THREE.Vector4() },
     mtr: { value: Array.from({ length: NFIRE }, () => new THREE.Vector2(-1e4, -1e4)) },
     smk: { value: Array.from({ length: NSMOKE }, () => new THREE.Vector3(0, 0, -1)) },
-    ridges: { value: null }, fx: { value: null },
+    ridges: { value: null }, fx: { value: null }, skyL: { value: null },
     ...this.parts.uniforms('cr'),
   });
   ridgeRT = new THREE.WebGLRenderTarget(4096, 1, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
@@ -397,6 +402,7 @@ export default class SceneDinoEra extends PanelScene {
     this.ridgePass.render(this.ctx.renderer, this.ridgeRT);
     this.pass.u.ridges!.value = this.ridgeRT.texture;
     this.pass.u.fx!.value = this.fxRT.texture;
+    this.pass.u.skyL!.value = this.skyRT.texture;
     const r = new Rng(4242);
     for (let i = 0; i < 19; i++) {
       const front = i >= 15;
@@ -705,6 +711,42 @@ export default class SceneDinoEra extends PanelScene {
     }
     clearRT(r, this.fxRT, [0, 0, 0], 0);
     fx.render(r, this.fxRT);
+
+    // pterosaurs gliding across the dusk sky; when the meteor comes they flap hard and scatter
+    const sk = this.sky;
+    sk.clear();
+    const panic = smoothstep(METEOR + 0.3, METEOR + 1.0, t);
+    for (let k = 0; k < 3; k++) {
+      const s0 = [0.8, 1.0, 0.65][k]!;
+      const tt = t - T0;
+      const x = 1900 + 210 * k - (95 + 22 * k) * tt - panic * 260 * (t - METEOR - 0.3) * (1 + k * 0.4);
+      const y = [410, 345, 455][k]! + 12 * Math.sin(tt * 0.8 + k) - panic * 90 * (t - METEOR - 0.3);   // against the glow
+      if (x < -150 || y < -80) continue;
+      const flapS = lerp(1.4, 7.5, panic), flapA = lerp(0.45, 1.0, panic);
+      const up = Math.sin(t * flapS + k * 1.7) * flapA;              // +1: wings raised, −1: wings down
+      const S = 26 * s0;
+      const q = (dx: number, dy: number): V2 => toScr(t, [x + dx * S, y + dy * S], 0.08);
+      const col = [0.006, 0.005, 0.005, 0.95] as const;
+      // the body, a long beak to the left, a crest swept back, the feet trailing
+      sk.polyline([q(-0.35, 0.05), q(0.15, 0.08), q(0.6, 0.18)], (kk) => lerp(5.0, 2.2, kk) * s0, () => col);
+      sk.polyline([q(-0.35, 0.05), q(-1.35, 0.25)], (kk) => lerp(3.0, 0.8, kk) * s0, () => col);
+      sk.polyline([q(-0.4, 0.0), q(-0.05, -0.38)], (kk) => lerp(2.6, 0.8, kk) * s0, () => col);
+      // the wings: an M — shoulder, a raised elbow, a long finger out to the tip; membrane back to the body
+      for (const side of [-1, 1]) {
+        const sh = q(0.0, 0.05);
+        const el = q(side * 0.9, -0.55 - 0.45 * up);
+        const tip = q(side * 2.3, 0.25 - 0.9 * up);
+        sk.polyline([sh, el, tip], (kk) => lerp(3.8, 1.2, kk) * s0, () => col);
+        for (let m = 1; m <= 9; m++) {
+          const f = m / 10;
+          const e: V2 = f < 0.4 ? [lerp(sh[0], el[0], f / 0.4), lerp(sh[1], el[1], f / 0.4)] : [lerp(el[0], tip[0], (f - 0.4) / 0.6), lerp(el[1], tip[1], (f - 0.4) / 0.6)];
+          const bp = q(side * 0.2 * f + 0.25 * f, 0.12 + 0.1 * f);
+          sk.seg2(e[0], e[1], bp[0], bp[1], 3.4 * s0, col);
+        }
+      }
+    }
+    clearRT(r, this.skyRT, [0, 0, 0], 0);
+    sk.render(r, this.skyRT);
     this.pass.render(r, out);
 
     // ferns: hairline fronds that sway; lit by the fire
@@ -738,6 +780,18 @@ export default class SceneDinoEra extends PanelScene {
           }
         }
       }
+    }
+    // fireflies over the ferns: soft points that wander and pulse (they go out when the fire comes)
+    const fly = 1 - smoothstep(IMPACT - 0.5, IMPACT, t);
+    if (fly > 0) for (let k = 0; k < 26; k++) {
+      const h = (k * 0.618034) % 1, ph = k * 2.39;
+      const x = 80 + h * 1760 + 40 * Math.sin(t * 0.7 + ph) + 18 * Math.sin(t * 1.9 + ph * 2);
+      const y = 800 + ((k * 0.37) % 1) * 200 + 22 * Math.sin(t * 0.9 + ph * 1.3);
+      const pulse = Math.max(0, Math.sin(t * (1.5 + h) + ph)) ** 3 * fly;
+      if (pulse < 0.02) continue;
+      const q = toScr(t, [x, y], 0.9);
+      fb.dot(q[0], q[1], 9, [0.5 * pulse, 0.45 * pulse, 0.08 * pulse, 1]);
+      fb.dot(q[0], q[1], 2.4, [2.2 * pulse, 2.0 * pulse, 0.6 * pulse, 1]);
     }
     fb.render(r, out);
     fr.render(r, out);

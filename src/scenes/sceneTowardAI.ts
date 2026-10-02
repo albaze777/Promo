@@ -76,26 +76,99 @@ export default class SceneTowardAI extends PanelScene {
   items: Item[] = [];
   traces: { pts: V2[]; t0: number; t1: number }[] = [];
   pass = new FSPass(/* glsl */ `
-    uniform vec2 cam; uniform float camS, t; uniform vec4 rbox;
+    uniform vec2 cam; uniform float camS, t; uniform vec4 rbox; uniform vec3 robK; uniform float r2x;
     ${BODY_COMMON_GLSL}
     ${bodyGLSL('rb', NBONES)}
     void main() {
       vec2 px = FRAG_PX;
       vec2 w = cam + (px - vec2(960.0, 540.0)) / camS;
-      vec3 c = C_INK * 0.62;
-      // the drawing board: a faint engineering grid, a baseline with ticks
+      const float BASE = ${BASE.toFixed(1)};
+      // ---- the drawing board: warm dark card with fibres and stains, under a lamp that hangs over the work ----
+      vec3 c = vec3(0.0105, 0.0095, 0.0085);
+      float fib = vnoise(vec2(w.x / 40.0, w.y / 2.2)) * 0.5 + vnoise(w / 7.0) * 0.5;
+      c *= 0.88 + 0.22 * fib;
+      c *= 0.85 + 0.3 * fbm(w / 420.0 + 3.0, 4);                          // stains and wear
+      vec2 lamp = vec2(960.0, 380.0);
+      float pool = exp(-pow(length((px - lamp) * vec2(0.75, 1.0)) / 820.0, 2.0));
+      c *= 0.55 + 1.1 * pool;
+      c += vec3(0.012, 0.008, 0.004) * pool;                              // warm lamplight
+      // the engineering grid: fine and major lines
       vec2 g = abs(fract(w / 66.0 + 0.5) - 0.5) * 66.0 * camS;
-      c += C_BONE * 0.016 * sat(1.0 - min(g.x, g.y));
-      float base = pxLine((w.y - ${BASE.toFixed(1)}) * camS, 1.0);
-      float tick = step(abs(fract(w.x / 132.0 + 0.5) - 0.5) * 132.0 * camS, 0.6) * step(abs(w.y - ${BASE.toFixed(1)} - 8.0), 8.0);
+      vec2 g2 = abs(fract(w / 330.0 + 0.5) - 0.5) * 330.0 * camS;
+      c += C_BONE * (0.012 * sat(1.0 - min(g.x, g.y)) + 0.02 * sat(1.2 - min(g2.x, g2.y))) * (0.6 + 0.6 * pool);
+      // ghost drawings from earlier work, half rubbed out: construction circles with centre marks, arcs with
+      // their radius, dimension lines with arrowheads and a scale bar (a few per 700 px cell, on a slower layer)
+      vec2 wg = cam * 0.55 + (px - vec2(960.0, 540.0)) / camS + vec2(0.0, 120.0);
+      vec2 ci = floor(wg / 700.0);
+      vec2 cf = wg - (ci + 0.5) * 700.0;
+      float kind = hash12(ci + 7.0);
+      vec2 cc = (hash22(ci) - 0.5) * 300.0;
+      vec2 q = cf - cc;
+      float R = 70.0 + 120.0 * hash12(ci + 3.0);
+      float gh = 0.0;
+      if (kind < 0.4) {
+        gh = pxLine((length(q) - R) * camS, 1.0) + pxLine((length(q) - R * 0.62) * camS, 0.8) * 0.6;
+        gh += (pxLine(q.x * camS, 0.8) * step(abs(q.y), R * 1.15) + pxLine(q.y * camS, 0.8) * step(abs(q.x), R * 1.15)) * 0.7;
+      } else if (kind < 0.7) {
+        float a = atan(q.y, q.x), a0 = hash12(ci + 9.0) * 6.28;
+        gh = pxLine((length(q) - R) * camS, 1.0) * step(mod(a - a0, 6.2832), 2.2);
+        vec2 dr = vec2(cos(a0 + 1.1), sin(a0 + 1.1));
+        gh += pxLine(abs(dot(q, vec2(-dr.y, dr.x))) * camS, 0.8) * step(0.0, dot(q, dr)) * step(dot(q, dr), R);
+      } else {
+        // a dimension line with end ticks, arrowheads and a little scale bar of alternating blocks
+        float L = R * 1.8;
+        gh = pxLine(q.y * camS, 0.9) * step(abs(q.x), L);
+        gh += pxLine((abs(q.x) - L) * camS, 0.9) * step(abs(q.y), 18.0);
+        float ah = abs(q.x) - (L - 22.0);
+        gh += step(0.0, ah) * step(abs(q.y), (22.0 - ah) * 0.35) * step(ah, 22.0) * 0.8;
+        vec2 sb = q - vec2(-L * 0.5, 46.0);
+        gh += step(abs(sb.y), 4.0) * step(abs(sb.x), 90.0) * step(0.5, fract(sb.x / 30.0)) * 0.7 + pxLine((abs(sb.y) - 4.0) * camS, 0.7) * step(abs(sb.x), 90.0);
+      }
+      float rub = smoothstep(0.3, 0.7, fbm(wg / 90.0 + ci, 3));         // half rubbed out
+      c += C_BONE * 0.06 * gh * rub * (0.5 + 0.7 * pool);
+      // pencil smudges and a few registration marks
+      c += C_GRAPHITE * 0.01 * smoothstep(0.62, 0.8, fbm(w / 160.0 + 11.0, 4));
+      vec2 rm = w - (floor(w / 990.0) + 0.5) * 990.0 + vec2(0.0, 300.0);
+      c += C_LINE * 0.08 * (pxLine((length(rm) - 9.0) * camS, 1.0) + (pxLine(rm.x * camS, 0.8) + pxLine(rm.y * camS, 0.8)) * step(length(rm), 16.0));
+      // ---- below the baseline: the workbench, a steel edge, a soft floor reflection of the light ----
+      if (w.y > BASE) {
+        float dy = w.y - BASE;
+        vec3 bench = vec3(0.016, 0.0125, 0.01) * (0.8 + 0.4 * vnoise(vec2(w.x / 90.0, dy / 4.0)));
+        bench *= 0.9 + 0.2 * vnoise(vec2(w.x / 3.0, dy / 30.0));                     // grain
+        bench += vec3(0.02, 0.014, 0.008) * exp(-dy / 30.0) * pool;                    // the light caught in the top
+        bench += vec3(0.04, 0.035, 0.03) * exp(-pow(dy - 6.0, 2.0) / 6.0);           // the steel edge strip
+        float seam = pxLine((abs(fract(w.x / 520.0 + 0.5) - 0.5) * 520.0) * camS, 1.0) * step(14.0, dy);
+        bench *= 1.0 - 0.5 * seam;
+        // contact shadows under each robot as it is built
+        float sh = 0.0;
+        sh += robK.x * exp(-pow((w.x - 2412.0) / 70.0, 2.0)) * exp(-dy / 14.0);
+        sh += robK.y * exp(-pow((w.x - r2x) / 60.0, 2.0)) * exp(-dy / 14.0);
+        sh += robK.z * exp(-pow((w.x - ${R3[0].toFixed(1)}) / 95.0, 2.0)) * exp(-dy / 14.0);
+        bench *= 1.0 - 0.75 * sat(sh);
+        c = mix(c, bench, smoothstep(0.0, 1.5 / camS, dy));
+      } else {
+        // the robots cast soft shadows on the board behind them, offset away from the lamp
+        float sh = 0.0;
+        sh += robK.x * exp(-pow((w.x - 2440.0) / 40.0, 2.0)) * smoothstep(BASE - 430.0, BASE - 200.0, w.y);
+        sh += robK.y * exp(-pow(length(vec2(w.x - r2x - 30.0, w.y - BASE + 150.0)) / 90.0, 2.0));
+        c *= 1.0 - 0.3 * sat(sh);
+      }
+      float base = pxLine((w.y - BASE) * camS, 1.0);
+      float tick = step(abs(fract(w.x / 132.0 + 0.5) - 0.5) * 132.0 * camS, 0.6) * step(abs(w.y - BASE - 8.0), 8.0);
       c += C_BONE * 0.22 * (base + tick * 0.6);
+      // dust drifting through the lamplight (screen space)
+      vec2 dg = (px + vec2(t * 9.0, -t * 14.0)) / 26.0;
+      vec2 di = floor(dg);
+      vec2 dp = (fract(dg) - 0.5 - (hash22(di) - 0.5) * 0.7) * 26.0;
+      float mote = step(0.965, hash12(di + 4.0)) * exp(-dot(dp, dp) / 0.9);
+      c += vec3(1.0, 0.9, 0.75) * 0.05 * mote * pool * (0.5 + 0.5 * sin(t * 2.0 + hash12(di) * 20.0));
       // the robots: the same relief as every body in the film, in blueprint tones
       vec3 Ld = normalize(vec3(-0.5, -0.65, 0.6));
       Body B = rbBody(px, 0, ${NBONES}, rbox);
       // steel; ivory enamel; industrial ochre
       c = bodyShade(c, B, Ld, vec3(1.0, 0.97, 0.92) * 1.1, vec3(0.15, 0.148, 0.145), vec3(0.6, 0.56, 0.48), vec3(0.5, 0.24, 0.035), 0.0, 1.0, C_BONE * 0.85, 6.0, 1.0);
       fragColor = vec4(c, 1.0);
-    }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, rbox: { value: new THREE.Vector4() }, ...this.bones.uniforms('rb') });
+    }`, { cam: { value: new THREE.Vector2() }, camS: { value: 1 }, t: { value: 0 }, rbox: { value: new THREE.Vector4() }, robK: { value: new THREE.Vector3() }, r2x: { value: 2690 }, ...this.bones.uniforms('rb') });
 
   override init() {
     const bone = rgba(BONE, 0.85, 0.75), ash = rgba(ASH, 0.6, 0.6);
@@ -318,6 +391,10 @@ export default class SceneTowardAI extends PanelScene {
     const cam = camAt(t);
     (u.cam!.value as THREE.Vector2).set(cam.x, cam.y);
     u.camS!.value = cam.s; u.t!.value = t;
+    // how built each robot is (for its shadows), and where the wheeled one rolls (as in robots())
+    const bk = (t0: number) => ease.outCubic(clamp((t - t0) / 0.5));
+    (u.robK!.value as THREE.Vector3).set(bk(ROBOTS + 0.1), bk(ROBOTS + 0.8), bk(ROBOTS + 1.5));
+    u.r2x!.value = 2690 + 24 * Math.sin((t - (ROBOTS + 0.75)) * 1.1);
     const rb = this.robots(t);
     const S = (p: V2) => this.scr(t, p);
     const caps = rb.caps.map((c) => ({ ...c, a: S(c.a), b: S(c.b), ra: c.ra * cam.s, rb: c.rb * cam.s, k: (c.k ?? 3) * cam.s }));

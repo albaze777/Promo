@@ -99,6 +99,15 @@ session; nothing here is an estimate unless it says so.
   - Close above the ground (03a): tree crowns, shrubs and rocks with shadows, panning and zooming with the map.
   - Measured cost: planet/map frame (9.5 s, 4 sub-frames, warm) ≈ 7.1 s → 8.1 s.
 
+- Sixth round (more environment detail):
+  - 05c Toward AI: a warm dark drafting board under a hanging lamp (fibres, stains, a major/minor grid), half
+    rubbed-out ghost drawings (construction circles, arcs with radii, dimension lines, a scale bar), registration
+    marks, pencil smudges, a workbench below the baseline with a steel edge and seams, contact and cast shadows
+    for each robot as it is built, dust drifting in the lamplight.
+  - 05a Dino era: three pterosaurs gliding across the dusk glow that flap hard and scatter when the meteor falls
+    (their own layer `skyRT`, composited behind the ridges and creatures); fireflies over the ferns that go out
+    at the impact.
+
 ## Not done / remaining
 
 1. **The current version has not been fully rendered.** At the pause, `out/segments_v2/` (gitignored, only
