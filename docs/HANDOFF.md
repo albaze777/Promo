@@ -75,6 +75,20 @@ session; nothing here is an estimate unless it says so.
     biped, ochre wheeled one with an ivory dome, industrial-ochre arm with hazard bands, amber lamp eyes.
   - Measured cost (4 sub-frames, warm, this container): dino full-screen frames ≈ 7.8–8.1 s, up from ≈ 5.9 s.
 
+- Fourth round (environments, after "more details to every land, water, cart, mountain, space, hand"):
+  - Space: `src/shaders/space.ts` (Milky Way band with dust lanes, terracotta/viridian nebulae, stars in five
+    temperatures with glints, distant galaxies), used by Origin and continued exactly behind the planet in World.
+  - Land and water (`topo.ts`): vegetation that follows life, forests, uplands, snow, polar ice, beaches, rivers;
+    sea depth colours, shore foam, a running surf line, wind ripples and glints; clouds, a sun glint, a blue limb.
+  - The hand: skin tone, veins, knuckles, joint creases, nails.
+  - Dino era: rock with gullies/strata, lava crater and flows, a lit plume, cloud bands, a forest of conifers and
+    tree ferns (`tree()` SDF), varied ground with grass and stones, a pond mirroring the sky and the fire.
+  - Wheel scene: watercolour washes (sky, sun, hills, ground), grass tufts on perspective rows, pebbles, birds,
+    wheel ruts and shadows; the cart is now drawn in the shader (wood deck, rail, rope lashings, push bar, a load
+    of firewood, a pot and stones) and the wheels have a felloe, pegs, a hub boss and crisp spokes.
+  - Measured cost (4 sub-frames, warm, this container; before → after this round): planet/map frame (9.5 s)
+    ≈ 4.3 s → 7.1 s, wheel frame (58.5 s) ≈ 6.0 s → 7.3 s, dino frame (41.9 s) ≈ 8.1 s → 9.4 s.
+
 ## Not done / remaining
 
 1. **The current version has not been fully rendered.** At the pause, `out/segments_v2/` (gitignored, only

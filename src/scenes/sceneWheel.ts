@@ -34,7 +34,7 @@ export default class SceneWheel extends PanelScene {
   strokes: Stroke[] = [];
   pass = new FSPass(/* glsl */ `
     uniform float t; uniform sampler2D paint, order; uniform vec4 fbox[3];
-    uniform vec2 w1, w2; uniform float rot, discK, discA, holeK, spokeK, w2K, tNorm;
+    uniform vec2 w1, w2; uniform float rot, discK, discA, holeK, spokeK, w2K, tNorm, build, pb, loadK;
     ${BODY_COMMON_GLSL}
     ${bodyGLSL('fg', 3 * NB)}
     const float R = ${R.toFixed(1)};
@@ -49,40 +49,234 @@ export default class SceneWheel extends PanelScene {
       float m = sweep >= 1.0 ? 1.0 : smoothstep(sweep * TAU + 0.05, sweep * TAU, da);
       // spokes: four sectors cut out between rim and hub
       float sa = mod(a - rot, PI * 0.5) - PI * 0.25;
-      float cut = spokeK * smoothstep(R * 0.24, R * 0.3, r) * smoothstep(R * 0.8, R * 0.74, r) * smoothstep(0.16, 0.24, abs(sa) * r / R);
+      // (a crisp distance in px from the spoke's edge and from the rings, so the cut is sharp)
+      float dSpoke = abs(sa) * r - R * 0.13;
+      float dOpen = min(dSpoke, min(r - R * 0.3, R * 0.78 - r));   // > 0 inside an opening between spokes
+      float cut = spokeK * fill(-dOpen);
       float hole = holeK * smoothstep(11.0, 9.0, r);
       float body = smoothstep(R + 0.8, R - 0.8, r) * m * k * (1.0 - cut) * (1.0 - hole);
       vec3 wood = mix(C_TERRACOTTA, C_OCHRE, 0.45) * 0.55;
-      wood *= 0.85 + 0.15 * fbm(vec2(r / 6.0, a * 3.0 + rot), 3);
-      // growth rings: contour lines of the radius (they turn with the wheel's grain)
+      wood *= 0.82 + 0.22 * fbm(vec2(r / 6.0, a * 3.0 + rot), 3);
+      // growth rings: contour lines of the radius (they turn with the wheel's grain), and radial checks (cracks)
       float rr = r + 2.5 * sin(a * 3.0 - rot * 3.0);
       float ring = isoLine(rr, 11.0, 0.8) * 0.35;
-      vec3 w = wood * (1.0 - ring);
-      w = mix(w, ${'vec3'}(${INK.map((v) => v.toFixed(4)).join(', ')}), pxLine(r - R + 1.0, 2.2) + pxLine(r - R * 0.3, 1.0) * spokeK + pxLine(r - 10.0, 1.4) * holeK);
+      float check = smoothstep(0.035, 0.0, abs(fract((a - rot) * 7.0 / TAU + 0.13 * sin(r / 9.0)) - 0.5) - 0.465) * smoothstep(R * 0.35, R * 0.8, r) * 0.5;
+      vec3 w = wood * (1.0 - ring) * (1.0 - check * 0.6);
+      // a darker felloe (the rim band) once the spokes are cut, fixed with wooden pegs
+      float felloe = smoothstep(R * 0.79, R * 0.81, r) * spokeK;
+      w = mix(w, wood * 0.62 * (0.9 + 0.2 * vnoise(vec2(a * 30.0 - rot * 30.0, r))), felloe);
+      float pa = mod(a - rot + PI / 8.0, PI / 4.0) - PI / 8.0;
+      float peg = smoothstep(3.6, 2.4, length(vec2(pa * R * 0.895, r - R * 0.895))) * spokeK;
+      w = mix(w, vec3(0.05, 0.03, 0.018), peg);
+      // the hub: a raised boss with a dark axle hole
+      float hub = smoothstep(R * 0.3, R * 0.27, r) * spokeK;
+      w = mix(w, wood * 1.25 * (1.0 - 0.4 * smoothstep(R * 0.15, R * 0.28, r)), hub);
+      // bevel light from the upper left: the edges catch the light, the lower right falls into shade
+      float bev = smoothstep(R - 9.0, R - 1.0, r) * dot(normalize(d), vec2(-0.7, -0.7));
+      w *= 1.0 + 0.35 * bev;
+      w *= 0.85 + 0.15 * smoothstep(R, R * 0.2, length(d - vec2(-0.3, -0.3) * R));
+      w = mix(w, ${'vec3'}(${INK.map((v) => v.toFixed(4)).join(', ')}), sat(pxLine(r - R + 1.0, 2.2) + pxLine(dOpen, 1.4) * spokeK + pxLine(r - 10.0, 1.4) * holeK));
       return mix(c, w, body);
+    }
+    float ease3(float k) { return 1.0 - pow(1.0 - k, 3.0); }
+    /** wood along a direction: grain, knots, a lit upper edge; d: SDF of the part, h: its half-thickness */
+    vec3 woodC(vec2 q, float d, float h, float tone) {
+      vec3 wd = mix(C_TERRACOTTA, C_OCHRE, 0.5) * 0.5 * tone;
+      float g = fbm(vec2(q.x / 50.0, q.y / 1.3), 4);
+      wd *= 0.78 + 0.4 * g;
+      wd *= 1.0 - 0.35 * smoothstep(0.75, 0.9, vnoise(q / 9.0 + 4.0));          // knots
+      wd *= 0.8 + 0.35 * smoothstep(-h, h * 0.6, -q.y);                          // the upper side is lit
+      return wd;
+    }
+    vec3 cart(vec3 c, vec2 px) {
+      if (build <= 0.0) return c;
+      vec3 ink = ${'vec3'}(${INK.map((v) => v.toFixed(4)).join(', ')});
+      float y = w1.y - R - 10.0, x0 = w1.x - R - 30.0, x1 = w2.x + R + 30.0;
+      float xm = mix(x0, x1, build);
+      if (px.x < x0 - 80.0 || px.x > x1 + 10.0 || px.y < y - 140.0 || px.y > w1.y + 14.0) return c;
+      float dAll = 1e5;
+      // the bearers: a block from each axle up to the deck, with a peg through the hub
+      for (int k = 0; k < 2; k++) {
+        vec2 a = k == 0 ? w1 : w2;
+        if (a.x > xm + R) continue;
+        float db = sdBox(px - vec2(a.x, (a.y + y) * 0.5), vec2(7.0, (a.y - y) * 0.5));
+        if (db < 1.0) c = mix(c, woodC(px - a, db, 7.0, 0.75), fill(db));
+        dAll = min(dAll, db);
+        float dp = length(px - a) - 6.5;
+        c = mix(c, vec3(0.06, 0.035, 0.02) + vec3(0.1, 0.07, 0.04) * smoothstep(4.0, 0.0, length(px - a + vec2(2.0))), fill(dp));
+        dAll = min(dAll, dp);
+      }
+      // the deck: a thick side board with nails, plank ends showing as seams
+      float dd = sdBox(px - vec2((x0 + xm) * 0.5, y), vec2((xm - x0) * 0.5, 7.0));
+      if (dd < 1.0) {
+        vec3 wd = woodC(px - vec2(x0, y), dd, 7.0, 1.0);
+        float seam = 1.0 - smoothstep(0.0, 1.2, abs(mod(px.x - x0, 58.0) - 29.0) - 27.8);
+        wd *= 1.0 - 0.5 * seam;
+        float nail = smoothstep(2.0, 1.0, length(vec2(mod(px.x - x0 + 22.0, 58.0) - 7.0, px.y - y)));
+        wd = mix(wd, vec3(0.04, 0.035, 0.03) + 0.05 * step(px.y, y - 0.5), nail);
+        c = mix(c, wd, fill(dd));
+      }
+      dAll = min(dAll, dd);
+      // the side rail on posts, tied with rope at every post
+      float dr = sdBox(px - vec2((x0 + mix(x0, x1, build * build)) * 0.5, y - 22.0), vec2((mix(x0, x1, build * build) - x0) * 0.5, 3.0));
+      for (int k = 0; k <= 6; k++) {
+        float xk = mix(x0 + 4.0, x1 - 4.0, float(k) / 6.0);
+        if (xk > xm) continue;
+        float dpst = sdBox(px - vec2(xk, y - 13.0), vec2(2.6, 11.0));
+        dr = min(dr, dpst);
+        // a rope lashing where post meets rail
+        vec2 lq = px - vec2(xk, y - 22.0);
+        float lash = sdBox(lq, vec2(5.0, 5.0));
+        if (lash < 1.0) {
+          vec3 rope = vec3(0.42, 0.33, 0.2) * (0.7 + 0.5 * smoothstep(0.3, 0.7, fract((lq.x + lq.y) / 3.0)));
+          c = mix(c, rope, fill(lash) * 0.95);
+          dAll = min(dAll, lash);
+        }
+      }
+      if (dr < 1.0) c = mix(c, woodC(px - vec2(x0, y - 22.0), dr, 3.0, 0.85), fill(dr) * (1.0 - fill(dAll)));
+      dAll = min(dAll, dr);
+      // the push bar, with a grip wrapped in rope
+      if (pb > 0.0) {
+        vec2 a = vec2(x0, y - 4.0), b = vec2(x0 - 60.0 * pb, y - 54.0 * pb);
+        float dbar = sdCapsule(px, a, b, 3.6, 3.2);
+        vec2 ba = normalize(b - a);
+        float along = dot(px - a, ba);
+        vec3 bc = woodC(vec2(along, dot(px - a, vec2(-ba.y, ba.x))), dbar, 3.6, 0.9);
+        float grip = smoothstep(52.0, 56.0, along) * smoothstep(80.0, 76.0, along);
+        bc = mix(bc, vec3(0.42, 0.33, 0.2) * (0.7 + 0.5 * step(0.5, fract(along / 3.0))), grip);
+        c = mix(c, bc, fill(dbar));
+        dAll = min(dAll, dbar);
+      }
+      // the load: a bundle of firewood tied with rope, a clay pot with an ochre band, stones
+      if (loadK > 0.0) {
+        float s = ease3(loadK);
+        float top = y - 7.0;
+        for (int k = 0; k < 5; k++) {
+          float fk = float(k);
+          vec2 lc = vec2(x0 + 70.0 + mod(fk, 3.0) * 4.0, top - 7.0 - floor(fk / 3.0) * 12.0 - mod(fk, 3.0) * 0.0) + vec2(fk * 6.0 - 12.0, 0.0);
+          vec2 la = lc - vec2(55.0, 0.0) * s, lb = lc + vec2(55.0, -2.0 + fk) * s;
+          float dl = sdCapsule(px, la, lb, 6.0 * s, 6.0 * s);
+          if (dl < 1.0) {
+            vec3 bark = vec3(0.16, 0.1, 0.06) * (0.7 + 0.5 * vnoise(vec2((px.x - la.x) / 6.0, (px.y - la.y) / 1.5) + fk));
+            // the cut end shows its rings
+            float endR = length(px - lb);
+            bark = mix(bark, vec3(0.5, 0.36, 0.2) * (0.85 + 0.15 * sin(endR * 2.2)), smoothstep(6.5, 5.0, endR) * step(lb.x - 1.0, px.x));
+            c = mix(c, bark, fill(dl));
+          }
+          dAll = min(dAll, dl);
+        }
+        float rope = sdBox(px - vec2(x0 + 70.0, top - 12.0), vec2(2.0, 14.0 * s));
+        c = mix(c, vec3(0.45, 0.35, 0.21), fill(rope));
+        // the pot
+        vec2 pc = vec2(x0 + 230.0, top - 30.0 * s);
+        vec2 pq = (px - pc) / max(s, 0.01);
+        float dpot = (length(pq * vec2(1.0, 1.15)) - 28.0) * s;
+        dpot = min(dpot, sdBox(px - (pc + vec2(0.0, -28.0 * s)), vec2(13.0, 6.0) * s));
+        if (dpot < 1.0) {
+          vec3 clay = C_TERRACOTTA * 0.55 * (0.7 + 0.5 * smoothstep(20.0, -20.0, pq.x + pq.y * 0.5));
+          clay = mix(clay, C_OCHRE * 0.6, smoothstep(2.5, 1.5, abs(pq.y + 6.0) - 3.0));
+          clay = mix(clay, ink, pxLine(abs(pq.y + 6.0) - 6.0, 1.0) * 0.5);
+          clay = mix(clay, vec3(0.03, 0.015, 0.01), smoothstep(1.0, -1.0, sdBox(pq - vec2(0.0, -32.0), vec2(9.0, 2.5))));
+          c = mix(c, clay, fill(dpot));
+        }
+        dAll = min(dAll, dpot);
+        for (int k = 0; k < 3; k++) {
+          vec2 sc = vec2(x0 + 300.0 + float(k) * 26.0, top - 8.0 - float(k == 1) * 6.0);
+          float dst = (length((px - sc) * vec2(1.0, 1.4)) - 11.0 + float(k) * 2.0) ;
+          dst = dst > 0.0 ? dst : dst * s;
+          if (s < 0.99) dst += (1.0 - s) * 14.0;
+          vec3 st = vec3(0.32, 0.31, 0.29) * (0.6 + 0.6 * smoothstep(6.0, -6.0, px.x - sc.x + px.y - sc.y));
+          c = mix(c, st, fill(dst));
+          dAll = min(dAll, dst);
+        }
+      }
+      // one ink outline around everything
+      c = mix(c, ink, pxLine(dAll, 1.6) * 0.9);
+      return c;
     }
     void main() {
       vec2 px = FRAG_PX;
       vec3 paper = C_PAPER * (0.95 + 0.04 * fbm(px / 300.0, 3)) * (0.985 + 0.015 * vnoise(px / 1.7));
       vec3 c = paper;
       vec3 ink = vec3(${INK.map((v) => v.toFixed(4)).join(', ')});
-      // a low sun, drawn in graphite: a circle with a hatch
+      const float HZ = ${HORIZON.toFixed(1)};
+      // watercolour washes on the paper: pigment pools at the edges of each wash and granulates
+      float gran = 0.9 + 0.2 * vnoise(px / 2.3) * vnoise(px / 7.0 + 3.0);
+      // the sky: a blue-grey wash fading to warm paper at the horizon, with soft blooms
+      float skyW = smoothstep(HZ - 60.0, 80.0, px.y) * (0.75 + 0.5 * fbm(px / 260.0 + 7.0, 4));
+      c = mix(c, c * vec3(0.72, 0.8, 0.88), skyW * 0.55 * gran);
+      // two birds drifting
+      for (int k = 0; k < 2; k++) {
+        float tb = t - ${TA.toFixed(3)};
+        vec2 bp = vec2(620.0 + float(k) * 70.0 + tb * 26.0, 230.0 + float(k) * 34.0 + 6.0 * sin(t * 1.3 + float(k)));
+        vec2 q = px - bp;
+        float flap = 0.35 + 0.25 * sin(t * 9.0 + float(k) * 2.0);
+        float bd = min(sdSeg(vec2(abs(q.x), q.y), vec2(0.0), vec2(9.0, -9.0 * flap)), 99.0);
+        c = mix(c, ink, pxLine(bd, 1.4) * 0.7);
+      }
+      // a low sun: a warm ochre wash inside the graphite circle, a pale halo around it
       vec2 sp = px - vec2(430.0, 330.0);
       float sr = length(sp);
-      c = mix(c, ink, pxLine(sr - 105.0, 1.3) * 0.45 + isoLine(sp.y + sp.x * 0.35, 9.0, 0.7) * 0.12 * smoothstep(104.0, 100.0, sr));
-      // distant hills: graphite contour lines
-      float hy = ${HORIZON.toFixed(1)} - 60.0 - 70.0 * fbm(vec2(px.x / 380.0, 1.0), 4);
-      if (px.y > hy && px.y < ${HORIZON.toFixed(1)}) {
-        float v = (px.y - hy) / (${HORIZON.toFixed(1)} - hy);
-        c = mix(c, ink, 0.05 + 0.25 * isoLine(v * 6.0, 1.0, 0.7) * (1.0 - v));
+      c = mix(c, c * vec3(1.0, 0.86, 0.6), smoothstep(106.0, 98.0, sr) * 0.7 * gran);
+      c = mix(c, c * vec3(1.02, 0.97, 0.9), smoothstep(260.0, 110.0, sr) * 0.6);
+      c = mix(c, ink, pxLine(sr - 105.0, 1.3) * 0.45 + isoLine(sp.y + sp.x * 0.35, 9.0, 0.7) * 0.1 * smoothstep(104.0, 100.0, sr));
+      // distant hills: a sage wash (bluer and paler further away) under graphite contour lines
+      float hy = HZ - 60.0 - 70.0 * fbm(vec2(px.x / 380.0, 1.0), 4);
+      float hy2 = HZ - 110.0 - 60.0 * fbm(vec2(px.x / 300.0 + 9.0, 4.0), 4);
+      if (px.y > hy2 && px.y < hy) c = mix(c, c * vec3(0.78, 0.84, 0.88), 0.45 * gran * (0.8 + 0.4 * fbm(px / 90.0, 3)));
+      c = mix(c, ink, pxLine(px.y - hy2, 1.0) * 0.25 * step(px.y, hy));
+      if (px.y > hy && px.y < HZ) {
+        float v = (px.y - hy) / (HZ - hy);
+        c = mix(c, c * vec3(0.66, 0.76, 0.6), (0.55 + 0.2 * v) * gran * (0.8 + 0.4 * fbm(px / 70.0 + 2.0, 3)));
+        // scattered trees on the hills: small dabs of darker green
+        vec2 tc = vec2(px.x / 16.0, (px.y - hy) / 10.0);
+        vec2 ti = floor(tc);
+        float tr = step(0.8, hash12(ti)) * smoothstep(0.42, 0.2, length(fract(tc) - 0.5)) * step(px.y, HZ - 6.0);
+        c = mix(c, c * vec3(0.55, 0.66, 0.5), tr * 0.8);
+        c = mix(c, ink, 0.05 + 0.2 * isoLine(v * 6.0, 1.0, 0.7) * (1.0 - v));
       }
-      c = mix(c, ink, pxLine(px.y - hy, 1.1) * 0.5 * step(px.y, ${HORIZON.toFixed(1)} + 1.0));
-      // ground: a few perspective contour lines
-      if (px.y > ${HORIZON.toFixed(1)}) {
-        float dy = px.y - ${HORIZON.toFixed(1)};
+      c = mix(c, ink, pxLine(px.y - hy, 1.1) * 0.5 * step(px.y, HZ + 1.0));
+      // ground: an ochre and sienna wash, darker and greener toward us, with grass, pebbles and wheel ruts
+      if (px.y > HZ) {
+        float dy = px.y - HZ;
+        float near = smoothstep(HZ, 1080.0, px.y);
+        float wn = fbm(vec2(px.x / 220.0, dy / 40.0) + 3.0, 4);
+        vec3 wash = mix(vec3(0.92, 0.8, 0.58), vec3(0.78, 0.8, 0.58), smoothstep(0.4, 0.7, wn));
+        c = mix(c, c * wash, (0.45 + 0.35 * near) * gran);
         float lv = log(dy + 4.0) * 4.0 + fbm(vec2(px.x / 300.0, dy / 60.0), 3) * 1.2;
-        c = mix(c, ink, isoLine(lv, 1.0, 0.7) * 0.18);
-        c *= 0.97 - 0.04 * smoothstep(700.0, 1080.0, px.y);
+        c = mix(c, ink, isoLine(lv, 1.0, 0.7) * 0.16);
+        // grass tufts: little graphite ticks with a green wash, bigger toward us
+        // (on perspective rows: one tuft size per row, so the cells never shear)
+        float rv = log(dy + 20.0) * 9.0;
+        float row = floor(rv), fy = fract(rv);
+        float dyc = exp((row + 0.5) / 9.0) - 20.0;
+        float gs = mix(10.0, 26.0, smoothstep(0.0, 1080.0 - HZ, dyc));
+        float rowH = (dyc + 20.0) / 9.0;
+        float gx = px.x / gs + hash12(vec2(row, 5.0)) * 7.0;
+        vec2 gi = vec2(floor(gx), row);
+        if (hash12(gi + 7.0) > 0.8) {
+          vec2 gq = vec2((fract(gx) - 0.5) * gs, (fy - 0.9) * rowH);
+          float tuft = 1e5;
+          for (int k = -2; k <= 2; k++) tuft = min(tuft, sdSeg(gq, vec2(float(k) * 1.5, 0.0), vec2(float(k) * 3.5, -gs * (0.35 - 0.05 * abs(float(k))))));
+          c = mix(c, c * vec3(0.7, 0.8, 0.6), smoothstep(gs * 0.4, 0.0, length(gq - vec2(0.0, -gs * 0.12))) * 0.5);
+          c = mix(c, ink, pxLine(tuft, 1.0) * 0.45);
+        }
+        // pebbles
+        vec2 pc2 = vec2(px.x / 34.0, dy / 14.0);
+        vec2 pi2 = floor(pc2), pf2 = fract(pc2) - 0.5 - (hash22(pi2) - 0.5) * 0.4;
+        float peb = length(pf2 * vec2(34.0, 14.0) * vec2(1.0, 1.6)) - (2.0 + 2.0 * hash12(pi2 + 3.0)) * (0.5 + near);
+        if (hash12(pi2 + 1.0) > 0.88) { c = mix(c, c * vec3(0.8, 0.78, 0.75), fill(peb)); c = mix(c, ink, pxLine(peb, 0.9) * 0.35); }
+        c *= 0.97 - 0.04 * near;
+        // ruts left by the rolling wheels, and the cart's shadow
+        float rut = step(${D0[0].toFixed(1)}, px.x) * step(px.x, w1.x) * pxLine(px.y - ${(GROUND + 3).toFixed(1)}, 1.2);
+        c = mix(c, ink, rut * 0.35 * discK);
+        if (build > 0.0) {
+          float x0 = w1.x - R - 30.0, x1 = w2.x + R + 30.0;
+          float sh = smoothstep(0.0, 30.0, min(px.x - x0, x1 - px.x)) * exp(-pow((px.y - ${(GROUND + 4).toFixed(1)}) / 7.0, 2.0)) * build;
+          c *= 1.0 - 0.25 * sh;
+        }
+        float wsh = exp(-pow((px.y - ${(GROUND + 3).toFixed(1)}) / 5.0, 2.0)) * (smoothstep(R, 0.0, abs(px.x - w1.x)) * discK + smoothstep(R, 0.0, abs(px.x - w2.x)) * w2K);
+        c *= 1.0 - 0.3 * wsh;
       }
       // the rock face, with its paintings revealed in painting order
       float we = wallEdge(px.y);
@@ -111,11 +305,12 @@ export default class SceneWheel extends PanelScene {
       // the wheels (and the cart's maker in front of them)
       c = wheel(c, px, w2, w2K, 0.0, 1.0);
       c = wheel(c, px, w1, discK, 0.0, discA);
+      c = cart(c, px);
       c = bodyShade(c, fgBody(px, 0, ${NB}, fbox[0]), Ld, Lc, vec3(0.035, 0.026, 0.02), vec3(0.28, 0.16, 0.09), vec3(0.27, 0.095, 0.045), 0.0, 0.0, lineC, 6.0, 1.0);
       fragColor = vec4(c, 1.0);
     }`, {
     t: { value: 0 }, paint: { value: null }, order: { value: null }, w1: { value: new THREE.Vector2() }, w2: { value: new THREE.Vector2() },
-    rot: { value: 0 }, discK: { value: 0 }, discA: { value: 0 }, holeK: { value: 0 }, spokeK: { value: 0 }, w2K: { value: 0 }, tNorm: { value: 0 },
+    rot: { value: 0 }, discK: { value: 0 }, discA: { value: 0 }, build: { value: 0 }, pb: { value: 0 }, loadK: { value: 0 }, holeK: { value: 0 }, spokeK: { value: 0 }, w2K: { value: 0 }, tNorm: { value: 0 },
     fbox: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
     ...this.bones.uniforms('fg'),
   });
@@ -257,27 +452,16 @@ export default class SceneWheel extends PanelScene {
     u.holeK!.value = smoothstep(AXLE + 0.3, AXLE + 0.45, t);
     u.spokeK!.value = smoothstep(AXLE + 0.6, AXLE + 1.0, t);
     u.w2K!.value = ease.outCubic(clamp((t - (CART + 0.1)) / 0.4));
+    u.build!.value = ease.inOutCubic(clamp((t - (CART + 0.15)) / 0.5));
+    u.pb!.value = ease.outCubic(clamp((t - (CART + 0.45)) / 0.3));
+    u.loadK!.value = clamp((t - (CART + 0.6)) / 0.35);
     const ppl = this.people(t);
     ppl.forEach((p, i) => { this.bones.set(i * NB, NB, p); (u.fbox!.value as THREE.Vector4[])[i]!.copy(boxOf(p, 10)); });
     this.pass.render(r, out);
 
-    // the cart: platform, pole, drawn in ink as it is built
+    // the cart is drawn in the shader above (wood, rope, a load); here only the chips of the strikes
     const L = this.lines;
     L.clear();
-    const ink = rgba(INK, 1, 1);
-    const build = ease.inOutCubic(clamp((t - (CART + 0.15)) / 0.5));
-    if (build > 0) {
-      const y = w1[1] - R - 10, x0 = w1[0] - R - 30, x1 = w2[0] + R + 30;
-      const xm = lerp(x0, x1, build);
-      L.seg2(x0, y, xm, y, 7, ink);
-      L.seg2(x0, y - 20, lerp(x0, x1, build * build), y - 20, 2.4, ink);
-      for (let k = 0; k <= 6; k++) { const x = lerp(x0, x1, k / 6); if (x <= xm) L.seg2(x, y, x, y - 20, 2, ink); }
-      // the axles hold the platform
-      for (const c of [w1, w2]) if (c[0] <= xm + R) L.seg2(c[0], c[1], c[0], y, 4, ink);
-      // the push bar
-      const pb = ease.outCubic(clamp((t - (CART + 0.45)) / 0.3));
-      if (pb > 0) L.seg2(x0, y - 4, x0 - 60 * pb, y - 54 * pb, 5, ink);
-    }
     // chips from the strikes
     const strikes = Math.floor(t * 13 / TAU);
     for (let k = Math.max(0, strikes - 3); k <= strikes; k++) {
