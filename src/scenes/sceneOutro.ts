@@ -10,7 +10,10 @@ import { LineMotif, RED, BONE, rgba, arc } from '../motifs/line';
 import { setText, measure, type TextStyle } from '../typography/fonts';
 import { BRAND } from '../brand';
 import { CUE, DURATION } from '../timeline/cues';
-import { clamp, ease, lerp, smoothstep, TAU, hash } from '../utils/math';
+import { clamp, ease, lerp, smoothstep, TAU, hash, hexLin } from '../utils/math';
+import { PAL } from '../brand';
+
+const PIG = [PAL.ochre, PAL.ultramarine, PAL.vermilion, PAL.viridian, PAL.rose].map((h) => hexLin(h));
 
 const T0 = CUE.collapse, T_POINT = CUE.collapse + 0.34, T_RING = CUE.ring, T_RING_END = CUE.ring + 0.42;
 const T_WORD = CUE.wordmark, T_TAG = CUE.tagline, T_URL = CUE.url;
@@ -19,7 +22,17 @@ const R_BIG = 150;
 
 export default class SceneOutro extends Scene {
   override handlesTransition = true;
-  bg = new FSPass(`void main(){ fragColor = vec4(C_INK * 0.62, 1.0); }`);
+  // the dark of the end card holds the film's pigments as faint glows (continuing Ored's), breathing slowly
+  bg = new FSPass(/* glsl */ `
+    uniform float t, glowK;
+    void main() {
+      vec2 q = FRAG_PX / RES.y;
+      vec3 c = C_INK * 0.62;
+      c += C_ULTRAMARINE * 0.026 * glowK * exp(-pow(length(q - vec2(0.4 + 0.05 * sin(t * 0.3), 0.85)) / 0.5, 2.0));
+      c += C_TERRACOTTA * 0.018 * glowK * exp(-pow(length(q - vec2(1.4, 0.2 + 0.04 * cos(t * 0.4))) / 0.45, 2.0));
+      c += C_OCHRE * 0.01 * glowK * (0.8 + 0.2 * sin(t * 0.7)) * exp(-pow(length(q - vec2(0.889, 0.5)) / 0.3, 2.0));
+      fragColor = vec4(c, 1.0);
+    }`, { t: { value: 0 }, glowK: { value: 0 } });
   ring = new LineBatch(2048, { blend: 'normal' });
   motif = new LineMotif();
   ui = new Layer2D();
@@ -74,6 +87,8 @@ export default class SceneOutro extends Scene {
     const r = this.ctx.renderer, t = f.t;
     // the card is drawn into a buffer, then placed with a slow push: the hold is never still
     const out = this.tmp;
+    this.bg.u.t!.value = t;
+    this.bg.u.glowK!.value = smoothstep(T_WORD, T_URL + 0.6, t);
     this.bg.render(r, out);
     // faint dust drifting up through the dark
     const dk = smoothstep(T_WORD + 0.3, T_TAG + 0.8, t);
@@ -83,7 +98,9 @@ export default class SceneOutro extends Scene {
       for (let i = 0; i < 70; i++) {
         const x = hash(i, 1) * 1920 + 14 * Math.sin(t * 0.35 + i), y = ((hash(i, 2) * 1180 - 11 * t) % 1180 + 1180) % 1180 - 50;
         const a = (0.05 + 0.08 * hash(i, 3)) * dk * (0.6 + 0.4 * Math.sin(t * 0.8 + i * 1.7));
-        D.dot(x, y, 2 + 4 * hash(i, 4), rgba(BONE, 1, a));
+        // most motes are bone; some carry a pigment of the gallery's art
+        const pg = hash(i, 5), col = pg < 0.6 ? BONE : PIG[Math.floor(pg * 17) % PIG.length]!;
+        D.dot(x, y, 2 + 4 * hash(i, 4), rgba(col, 1, a * (pg < 0.6 ? 1 : 1.8)));
       }
       D.render(r, out);
     }

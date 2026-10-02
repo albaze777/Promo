@@ -108,6 +108,16 @@ session; nothing here is an estimate unless it says so.
     (their own layer `skyRT`, composited behind the ridges and creatures); fireflies over the ferns that go out
     at the impact.
 
+- Seventh round (details and colour across the whole film):
+  - 05/05d gallery: `wallAt()` — a warm charcoal plaster wall with a picture light over each piece, thin dark
+    frames with a lit top edge and soft drop shadows, at every nesting level; it fades back to the dark board as
+    the panels fly into Ored's characters.
+  - 06 Ored: each token carries a pigment of the gallery's art (ochre, ultramarine, vermilion, viridian) through its
+    bracket, value cells and points; layers, links and nodes are tinted along the pigment cycle; the chord pattern
+    is coloured by position on the ring; soft ultramarine/terracotta/viridian glows behind the board.
+  - 07 end card: the same glows, breathing; some dust motes carry pigments. Wordmark, tagline and URL unchanged.
+  - The opening black (the point) is left untouched on purpose.
+
 ## Not done / remaining
 
 1. **The current version has not been fully rendered.** At the pause, `out/segments_v2/` (gitignored, only

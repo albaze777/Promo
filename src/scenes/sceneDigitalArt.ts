@@ -325,6 +325,29 @@ export default class SceneDigitalArt extends Scene {
       return c * (1.0 + 0.05 * sin(t * 1.3 + float(k) * 2.0) * (1.0 - m));
     }
     float rbox(vec2 p, vec2 b, float r) { vec2 d = abs(p) - b + r; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - r; }
+    /** The gallery wall around the panels (q: world coordinates of a nesting level, pw: world units per px):
+     *  warm charcoal plaster, a picture light washing down over each piece, a thin dark frame with a lit
+     *  upper edge, and a soft shadow falling below and to the right of each frame. */
+    vec3 wallAt(vec2 q, float pw) {
+      vec3 c = vec3(0.016, 0.0135, 0.0115) * (0.86 + 0.2 * vnoise(q / 9.0) + 0.06 * vnoise(q / 1.6));
+      vec2 ij = floor((q - G0 + vec2(PX - PW, PY - PH) * 0.5) / vec2(PX, PY));
+      vec2 pc = G0 + ij * vec2(PX, PY) + vec2(PW, PH) * 0.5;
+      vec2 rel = q - pc;
+      // the picture light: a warm cone from a lamp just above the frame
+      vec2 lp = rel - vec2(0.0, -PH * 0.5 - 6.0);
+      float cone = exp(-pow(lp.x / (PW * 0.45 + max(0.0, lp.y) * 0.35), 2.0)) * exp(-max(0.0, lp.y) / (PH * 1.1)) * step(-4.0, lp.y);
+      c += vec3(0.035, 0.024, 0.014) * cone;
+      float lampD = sdBox(lp + vec2(0.0, 2.0), vec2(PW * 0.18, 1.8));
+      c = mix(c, vec3(0.05, 0.045, 0.04), sat(0.5 - lampD / pw));
+      // the frame and its shadow
+      float dF = sdBox(rel, vec2(PW, PH) * 0.5);
+      float dS = sdBox(rel - vec2(3.0, 6.0), vec2(PW, PH) * 0.5);
+      c *= 1.0 - 0.6 * exp(-max(dS, 0.0) / 5.0) * step(0.0, dF);
+      float frame = step(0.0, dF) * step(dF, 4.0);
+      vec3 fc = vec3(0.008, 0.007, 0.006) + vec3(0.05, 0.045, 0.04) * smoothstep(0.0, -2.0, rel.y + PH * 0.5 + 2.0) * smoothstep(2.0, 4.0, dF + 2.0);
+      c = mix(c, fc, frame * sat(1.0 - pw * 0.25));
+      return c;
+    }
     vec2 avatarOf(vec2 ij) { return G0 + ij * vec2(PX, PY) + vec2(9.0, PH + 22.0); }
     /** the community threads of one nesting level: each creator follows two neighbours */
     float threads(vec2 w, float pxw) {
@@ -401,7 +424,7 @@ export default class SceneDigitalArt extends Scene {
             }
           }
         }
-        c = mix(bg, layer, la);
+        c = mix(mix(bg, wallAt(w, pxw), outK * (inPanel ? 0.0 : 1.0)), layer, la);
         // grid hairlines
         vec2 g = abs(fract((w - G0) / CS + 0.5) - 0.5) * CS / pxw;
         c += C_BONE * 0.06 * gridK * sat(1.0 - min(g.x, g.y)) * (1.0 - outK);
@@ -429,7 +452,8 @@ export default class SceneDigitalArt extends Scene {
           bool inPanel = inGrid && lp.x < PW && lp.y < PH;
           float iso = (chain ? 1.0 : 1.0 - isolate);
           vec3 thr = C_LINE * 1.1 * threads(q, pw) * threadK * (inGrid ? 1.0 : 0.0);
-          if (!inPanel) { c += wt * (bg + thr * iso); wt = 0.0; break; }
+          // (the wall fades back to the dark board as the panels fly into Ored's characters)
+          if (!inPanel) { c += wt * (mix(wallAt(q, pw), bg, shrinkK) + thr * iso); wt = 0.0; break; }
           float ppx = PW * Zs;
           float portal = L < 3 ? smoothstep(420.0, 900.0, ppx) : 0.0;
           if (L == ${LEVEL_END} && chain) portal = 0.0;

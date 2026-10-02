@@ -13,7 +13,19 @@ import { INPUT, CHAR_CELL, CHAR_Y, charPos } from '../motifs/ored';
 import { setText, measure } from '../typography/fonts';
 import { BRAND, PAL } from '../brand';
 import { CUE } from '../timeline/cues';
-import { Rng, clamp, ease, keys, lerp, smoothstep, TAU, type V2 } from '../utils/math';
+import { Rng, clamp, ease, keys, lerp, smoothstep, TAU, hexLin, type V2 } from '../utils/math';
+
+/** The pigments of the gallery's art: each token carries one, and the colour flows on through the network. */
+const PIG = [PAL.ochre, PAL.ultramarine, PAL.vermilion, PAL.viridian, PAL.rose, PAL.terracotta].map((h) => hexLin(h));
+const PIG_SRGB = ['201,138,46', '86,110,230', '226,65,43', '64,160,128', '232,169,160', '181,86,58'];
+/** A colour along the pigment cycle (u in [0, 1) wraps), blended between neighbours. */
+const pigAt = (u: number) => {
+  const x = (((u % 1) + 1) % 1) * PIG.length, i = Math.floor(x), f = x - i;
+  const a = PIG[i]!, b = PIG[(i + 1) % PIG.length]!;
+  return [lerp(a[0]!, b[0]!, f), lerp(a[1]!, b[1]!, f), lerp(a[2]!, b[2]!, f)];
+};
+/** Token n's pigment (ultramarine is lifted so it reads on the dark board). */
+const TOK_COL = [0, 1, 2, 3].map((n) => (n === 1 ? pigAt(1 / 6).map((v) => v * 2.2) : pigAt(n / 6)));
 
 const T_IN = CUE.ored, T_CHARS = CUE.ored + 0.38, T_TOK = CUE.tokens, T_VEC = CUE.embed, T_LAY = CUE.layers;
 const T_PAT = CUE.pattern, T_NAME = CUE.oredName, T_OUT = CUE.collapse;
@@ -33,15 +45,21 @@ interface Node { L: number; k: number; x: number; y: number; z: number }
 export default class SceneOred extends Scene {
   override handlesTransition = true;
   bg = new FSPass(/* glsl */ `
-    uniform float gridK;
+    uniform float gridK, glowK, t;
     void main() {
       vec2 p = FRAG_PX;
       vec3 c = C_INK * 0.62;
+      // soft pigment glows drifting behind the work: ultramarine low left, terracotta high right, viridian
+      vec2 q = p / RES.y;
+      c += C_ULTRAMARINE * 0.03 * glowK * exp(-pow(length(q - vec2(0.45 + 0.05 * sin(t * 0.3), 0.8)) / 0.5, 2.0));
+      c += C_TERRACOTTA * 0.02 * glowK * exp(-pow(length(q - vec2(1.35, 0.25 + 0.04 * cos(t * 0.4))) / 0.45, 2.0));
+      c += C_VIRIDIAN * 0.015 * glowK * exp(-pow(length(q - vec2(0.95, 0.5)) / 0.35, 2.0));
+      c *= 0.9 + 0.2 * fbm(q * 3.0 + t * 0.02, 3) * glowK;
       // a faint engineering grid: the drawing board Ored is built on
       vec2 g = abs(fract(p / 66.0 + 0.5) - 0.5) * 66.0;
       c += C_BONE * 0.018 * gridK * sat(1.0 - min(g.x, g.y));
       fragColor = vec4(c, 1.0);
-    }`, { gridK: { value: 0 } });
+    }`, { gridK: { value: 0 }, glowK: { value: 0 }, t: { value: 0 } });
   lines = new LineBatch(30000);
   dots = new LineBatch(4000, { soft: true });
   motif = new LineMotif();
@@ -105,6 +123,8 @@ export default class SceneOred extends Scene {
   render(f: Frame, out: THREE.WebGLRenderTarget) {
     const r = this.ctx.renderer, t = f.t;
     this.bg.u.gridK!.value = smoothstep(T_IN, T_CHARS, t) * (1 - smoothstep(T_PAT, T_NAME, t) * 0.6);
+    this.bg.u.glowK!.value = smoothstep(T_IN, T_TOK, t);
+    this.bg.u.t!.value = t;
     this.bg.render(r, out);
     const L = this.lines, D = this.dots, m = this.motif, c = this.ui.ctx;
     L.clear(); D.clear(); m.clear(); this.ui.clear();
@@ -140,8 +160,9 @@ export default class SceneOred extends Scene {
           const v = vis(tk);
           const tc = charPos(v.a)[0] + ((v.n - 1) * CHAR_CELL) / 2 + (n - 1.5) * 40;
           const w = ((v.n - 1) * CHAR_CELL * 0.62 + 64) * k, h = 74;
-          c.strokeStyle = `rgba(239,233,223,${0.7 * charA})`; c.lineWidth = 1.2;
+          c.strokeStyle = `rgba(${PIG_SRGB[n === 1 ? 1 : n]},${0.85 * charA})`; c.lineWidth = 1.6;
           c.beginPath(); c.roundRect(tc - w / 2, CHAR_Y - h / 2, w, h, 8); c.stroke();
+          c.fillStyle = `rgba(${PIG_SRGB[n === 1 ? 1 : n]},${0.08 * charA * k})`; c.fill();
           setText(c, { fam: 'mono', px: 15, weight: 400, align: 'center', baseline: 'middle', track: 0.08 });
           c.fillStyle = `rgba(143,138,131,${k * charA})`;
           c.fillText(String(TOKEN_IDS[n]), tc, CHAR_Y + 56);
@@ -168,13 +189,13 @@ export default class SceneOred extends Scene {
           // a value cell: a square whose fill is the value
           if (liftK < 0.6) {
             const a = (1 - liftK / 0.6) * k;
-            c.strokeStyle = `rgba(239,233,223,${0.5 * a})`; c.lineWidth = 1;
+            c.strokeStyle = `rgba(${PIG_SRGB[n]},${0.6 * a})`; c.lineWidth = 1;
             c.strokeRect(x - sz / 2 + 0.5, y - sz / 2 + 0.5, sz, sz);
-            c.fillStyle = `rgba(239,233,223,${(0.15 + 0.8 * v) * a})`;
+            c.fillStyle = `rgba(${PIG_SRGB[n]},${(0.2 + 0.8 * v) * a})`;
             const inner = sz * (0.25 + 0.6 * v);
             c.fillRect(x - inner / 2, y - inner / 2, inner, inner);
           }
-          if (liftK > 0.2) D.dot(x, y, 7, rgba(BONE, 1, 0.8 * smoothstep(0.2, 0.6, liftK)));
+          if (liftK > 0.2) D.dot(x, y, 7, rgba(TOK_COL[n]!, 1, 1.4 * smoothstep(0.2, 0.6, liftK)));
         }
       });
     }
@@ -197,7 +218,7 @@ export default class SceneOred extends Scene {
           const p = this.project(t, Math.cos(a) * (LAYER_R[l]! + 26), LAYER_Y[l]!, Math.sin(a) * (LAYER_R[l]! + 26));
           pts.push([p[0], p[1]]);
         }
-        L.polyline(pts, () => 1, () => rgba(ASH, 0.35 * dimForName));
+        L.polyline(pts, () => 1, () => rgba(pigAt(l / LAYERS), 0.5 * dimForName, 1.3));
       }
       // links between layers + attention arcs within a layer
       for (const e of this.links) {
@@ -210,14 +231,17 @@ export default class SceneOred extends Scene {
           for (let s = 0; s <= 20 * g; s++) { const q = s / 20, u = 1 - q; pts.push([u * u * A[0] + 2 * u * q * mx + q * q * B[0], u * u * A[1] + 2 * u * q * my + q * q * B[1]]); }
           L.polyline(pts, () => 1.2, () => rgba(RED, 0.7 * (1 - patK) * dimForName, 1.1));
         } else {
-          L.seg2(A[0], A[1], lerp(A[0], B[0], g), lerp(A[1], B[1], g), 1, rgba(BONE, 0.22 * (1 - patK * 0.9) * dimForName));
+          const lc = pigAt(this.nodes[e.a]!.L / LAYERS + 0.08);
+          L.seg2(A[0], A[1], lerp(A[0], B[0], g), lerp(A[1], B[1], g), 1, rgba([lerp(BONE[0]!, lc[0]!, 0.85), lerp(BONE[1]!, lc[1]!, 0.85), lerp(BONE[2]!, lc[2]!, 0.85)], 0.32 * (1 - patK * 0.9) * dimForName, 1.3));
         }
       }
       for (let i = 0; i < this.nodes.length; i++) {
         const a = nodeA(i);
         if (a <= 0) continue;
         const p = this.nodePos(t, i);
-        D.dot(p[0], p[1], 6.5, rgba(BONE, 1, 0.85 * a * dimForName));
+        // nodes: bone at the core of the stack, tinted by their layer's pigment
+        const nc = pigAt(this.nodes[i]!.L / LAYERS);
+        D.dot(p[0], p[1], 6.5, rgba([lerp(BONE[0]!, nc[0]!, 0.85), lerp(BONE[1]!, nc[1]!, 0.85), lerp(BONE[2]!, nc[2]!, 0.85)], 1, 1.3 * a * dimForName));
       }
     }
 
@@ -229,7 +253,8 @@ export default class SceneOred extends Scene {
       const dim = 1 - fadeName * 0.5;
       for (let q = 0; q < RING_N * drawn; q++) {
         const [ax, ay] = ringPt(q), [bx, by] = ringPt((q * mult) % RING_N);
-        L.seg2(ax, ay, bx, by, 1, rgba(BONE, 0.2 * patK * dim));
+        const pc = pigAt(q / RING_N);
+        L.seg2(ax, ay, bx, by, 1, rgba(pc, 0.3 * patK * dim, 1.4));
       }
       const ring: number[][] = [];
       for (let s = 0; s <= 240; s++) { const a = (s / 240) * TAU; ring.push([960 + Math.cos(a) * RING_R, 540 + Math.sin(a) * RING_R]); }
