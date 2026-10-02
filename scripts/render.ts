@@ -220,6 +220,11 @@ async function segments(url: string, from: number, to: number, out: string) {
     let ctx: Awaited<ReturnType<typeof openPage>> | null = null;
     while (pending.length) {
       const c = pending.shift()!;
+      // --claim: several processes share one queue; a chunk is taken by creating its lock directory
+      if (flag('claim')) {
+        if (countFrames(c.f) === c.n) continue;
+        try { mkdirSync(c.f.replace(/\.mp4$/, '.lock')); } catch { continue; }
+      }
       for (let attempt = 1; ; attempt++) {
         try {
           if (!ctx || !ctx.browser.isConnected()) ctx = await openPage(url);
@@ -242,7 +247,7 @@ async function segments(url: string, from: number, to: number, out: string) {
     }
     await close(ctx?.browser);
   }));
-  if (shard) { console.log(`[segments] shard ${shard.join('/')} finished`); return; }
+  if (shard || flag('claim')) { console.log('[segments] worker finished'); return; }
   const missing = all.filter((c) => countFrames(c.f) !== c.n);
   if (missing.length) throw new Error(`missing chunks: ${missing.map((c) => c.i).join(', ')}`);
   const list = path.join(dir, 'list.txt');

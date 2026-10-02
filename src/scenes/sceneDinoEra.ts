@@ -132,7 +132,9 @@ export default class SceneDinoEra extends PanelScene {
         c = mix(c, smC, dens * 0.7);
       }
       // ---- the meteor: a white-hot head and a fire tail (yellow → orange → red), flickering ----
-      if (heat > 0.0 && length(max(max(mBox.xy - px, px - mBox.zw), 0.0)) < 120.0) {
+      float mbd = length(max(max(mBox.xy - px, px - mBox.zw), 0.0));
+      if (heat > 0.0 && mbd < 320.0) {
+        float mfade = smoothstep(320.0, 160.0, mbd);          // no hard edge where the early-out region ends
         float dmin = 1e5, s = 1.0;
         for (int i = 0; i < ${NFIRE - 1}; i++) {
           vec2 pa = px - mtr[i], ba = mtr[i + 1] - mtr[i];
@@ -147,8 +149,8 @@ export default class SceneDinoEra extends PanelScene {
         vec3 hot = mix(vec3(4.5, 4.1, 3.4), vec3(3.4, 1.9, 0.6), smoothstep(0.0, 0.22, s));
         hot = mix(hot, vec3(1.6, 0.42, 0.08), smoothstep(0.22, 0.65, s));
         hot = mix(hot, vec3(0.25, 0.06, 0.02), smoothstep(0.65, 1.0, s));
-        c += (hot * core + vec3(1.2, 0.5, 0.14) * glow * 0.35) * heat;
-        c += vec3(5.0, 4.7, 4.2) * exp(-dm * dm / 18.0) * mBright + vec3(1.4, 0.8, 0.35) * exp(-dm / 26.0) * 0.6 * mBright;
+        c += (hot * core + vec3(1.2, 0.5, 0.14) * glow * 0.35) * heat * mfade;
+        c += (vec3(5.0, 4.7, 4.2) * exp(-dm * dm / 18.0) + vec3(1.4, 0.8, 0.35) * exp(-dm / 26.0) * 0.6) * mBright * mfade;
       }
       // ---- the explosion beyond the ridge ----
       if (ti > 0.0) {
