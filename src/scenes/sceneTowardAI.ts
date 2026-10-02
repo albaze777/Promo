@@ -291,9 +291,16 @@ export default class SceneTowardAI extends PanelScene {
     joint(el, 9, b0 + 0.54);
     part(el, wr, 11, 9, b0 + 0.56, IV);
     joint(wr, 6, b0 + 0.58);
-    const pd: V2 = [wr[0] + 6, wr[1] + 16];
-    part(wr, pd, 8, 7, b0 + 0.6, M, 2);
-    for (let f = 0; f < 3; f++) { const f1: V2 = [pd[0] + 2 + f * 3, pd[1] + 12], f2: V2 = [f1[0] - 1 + f, f1[1] + 10]; part(pd, f1, 3.5, 3, b0 + 0.62, M, 0, false); part(f1, f2, 3, 2.4, b0 + 0.63, M, 0, false); }
+    // the hand: a palm plate, three fingers of three segments with knuckle discs and dark pads, a thumb
+    const pd: V2 = [wr[0] + 7, wr[1] + 20];
+    part(wr, pd, 10, 9, b0 + 0.6, M, 2);
+    part([wr[0] + 2, wr[1] + 6], [pd[0] - 1, pd[1] - 4], 6, 5.5, b0 + 0.6, IV, -1, false);
+    for (let f = 0; f < 3; f++) {
+      const f0: V2 = [pd[0] - 3 + f * 4, pd[1] + 4], f1: V2 = [f0[0] + 1 + f * 0.6, f0[1] + 11], f2: V2 = [f1[0] + 2.5, f1[1] + 9], f3: V2 = [f2[0] + 3.5, f2[1] + 6];
+      part(f0, f1, 4.2, 3.8, b0 + 0.62, M, 0, false); part(f1, f2, 3.8, 3.3, b0 + 0.63, M, 0, false); part(f2, f3, 3.3, 2.6, b0 + 0.64, M, 0, false);
+      part(f1, [f1[0] + 0.01, f1[1]], 2.2, 2.2, b0 + 0.64, J, -1, false);
+      part(f3, [f3[0] + 0.01, f3[1]], 2.4, 2.4, b0 + 0.65, DK, -1, false);
+    }
 
     // R1 detail: a shoulder plate, a hose down the back, chest vents and status lights, a cheek grille, a thumb
     part([sh[0] - 20, sh[1] - 12], [sh[0] + 18, sh[1] - 16], 15, 12, b0 + 0.51, OC, 4, false);
@@ -304,7 +311,7 @@ export default class SceneTowardAI extends PanelScene {
     for (let k = 0; k < 3; k++) part([ch[0] - 24, ch[1] - 20 + k * 7], [ch[0] - 6, ch[1] - 20 + k * 7], 1.6, 1.6, b0 + 0.31, DK, -1, false);
     for (let k = 0; k < 2; k++) part([ch[0] - 20 + k * 8, ch[1] + 4], [ch[0] - 20 + k * 8 + 0.01, ch[1] + 4], 2.3, 2.3, b0 + 0.33, k ? J : LP, -1, false);
     for (let k = 0; k < 3; k++) part([hd[0] + 6, hd[1] + 9 + k * 4], [hd[0] + 22, hd[1] + 9 + k * 4], 1.1, 1.1, b0 + 0.43, DK, -1, false);
-    part(pd, [pd[0] - 9, pd[1] + 9], 3.2, 2.4, b0 + 0.62, M, 0, false);
+    { const t1: V2 = [pd[0] - 9, pd[1] + 4], t2: V2 = [t1[0] - 2, t1[1] + 10]; part([pd[0] - 4, pd[1] - 4], t1, 4, 3.6, b0 + 0.62, M, 0, false); part(t1, t2, 3.6, 2.8, b0 + 0.63, M, 0, false); part(t1, [t1[0] + 0.01, t1[1]], 2, 2, b0 + 0.63, J, -1, false); }
     const split1 = caps.length;
 
     // R2: a wheeled one — a sphere on a tyred wheel, a sensor dome with one eye, a gripper arm; rocking

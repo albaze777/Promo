@@ -21,7 +21,7 @@ const T0 = CUE.dinoIn, T_FULL = CUE.dino, STALK = CUE.stalk, LUNGE = CUE.lunge, 
 const H0 = 640;                       // horizon
 const I: V2 = [372, 626];             // impact point (on the horizon, behind the ridge)
 const STAR: V2 = [1430, 176];         // where the red point hangs while the herbivore grazes
-const NS = 80, NR = 120;               // parts per creature
+const NS = 80, NR = 170;               // parts per creature
 const NFIRE = 16, NSMOKE = 24;
 
 /** Camera inside the panel: a slow push and a drift to the left (parallax by depth). */
@@ -41,6 +41,8 @@ const meteorPos = (u: number): V2 => bez(STAR, [1170, 186], [720, 356], I, u);
 const heatAt = (t: number) => smoothstep(METEOR, METEOR + 0.55, t) * (t < IMPACT ? 1 : 0);
 
 const P = (a: V2, b: V2, ra: number, rb: number, mat: number = MAT.SCALE, k = 10): Part => ({ a, b, ra, rb, mat, k });
+const sub2 = (a: V2, b: V2): V2 => [a[0] - b[0], a[1] - b[1]];
+const norm2 = (a: V2): V2 => { const L = Math.hypot(a[0], a[1]) || 1; return [a[0] / L, a[1] / L]; };
 const add = (p: V2, d: V2, s: number): V2 => [p[0] + d[0] * s, p[1] + d[1] * s];
 const dirOf = (a: number): V2 => [Math.cos(a), Math.sin(a)];
 const lerp2 = (a: V2, b: V2, k: number): V2 => [lerp(a[0], b[0], k), lerp(a[1], b[1], k)];
@@ -559,17 +561,29 @@ export default class SceneDinoEra extends PanelScene {
       const ankle: V2 = [knee[0] + Math.sin(b2) * 118, knee[1] + Math.cos(b2) * 118];
       const b3 = b2 + 0.85 + 0.3 * lift;
       const foot: V2 = [ankle[0] + Math.sin(b3) * 62, ankle[1] + Math.cos(b3) * 62];
+      const dShin = norm2(sub2(ankle, knee)), shinBack: V2 = [-dShin[1], dShin[0]];   // (perp of the shin: toward the tail)
       const L: Part[] = [
         P([Pv[0], Pv[1] + 10], knee, 66 * s, 36 * s, MAT.SCALE, 14),                                       // the drumstick
         P([Pv[0] - 26, Pv[1] + 24], add(lerp2(Pv, knee, 0.62), [-1, 0], 16), 50 * s, 28 * s, MAT.SCALE, 16),  // its rear muscle
-        P(knee, ankle, 32 * s, 18 * s, MAT.SCALE, 8), P(ankle, foot, 19 * s, 13 * s, MAT.SCALE, 6),
+        P(add(knee, [6, -4], 1), add(knee, [7, -4], 1), 34 * s, 34 * s, MAT.SCALE, 10),                    // the knee
+        P(knee, ankle, 36 * s, 21 * s, MAT.SCALE, 8),                                                       // the shin
+        P(add(add(knee, dShin, 18), shinBack, 16), add(add(knee, dShin, 74), shinBack, 8), 27 * s, 13 * s, MAT.SCALE, 10),  // the calf
+        P(ankle, [ankle[0] + 0.5, ankle[1]], 23 * s, 23 * s, MAT.SCALE, 6),                                // the ankle joint
+        P(ankle, foot, 22 * s, 15 * s, MAT.SCALE, 6),                                                       // the long metatarsus
       ];
-      for (let tI = 0; tI < 3; tI++) {
-        const ta = -0.25 + tI * 0.2 + 0.3 * lift;
-        const m: V2 = [foot[0] + Math.cos(ta) * 22, foot[1] + Math.sin(ta) * 8 + 4];
-        const tip: V2 = [m[0] + Math.cos(ta) * 18, m[1] + 3];
-        L.push(P(foot, m, 10 * s, 8 * s, MAT.SCALE, 4), P(m, tip, 8 * s, 6 * s, MAT.SCALE, 3), P(tip, [tip[0] + 12, tip[1] + 7], 5.5 * s, 1.2, MAT.HORN, 0));
-        low = Math.max(low, tip[1] + 7);
+      // three toes in a side view: the far one higher and set back, the near one lower; each three segments with
+      // pads under the joints and a hooked claw; a lifted foot lets them droop
+      for (const tI of [0, 2, 1]) {
+        const len = [42, 56, 46][tI]! * s;
+        const ta = [-0.3, -0.06, 0.12][tI]! + 0.45 * lift;
+        const base: V2 = [foot[0] + [-10, 0, -4][tI]!, foot[1] + [-9, 0, 5][tI]!];
+        const j1: V2 = add(base, dirOf(ta), len * 0.42), j2: V2 = add(j1, dirOf(ta + 0.12), len * 0.33), tip: V2 = add(j2, dirOf(ta + 0.3), len * 0.25);
+        const r0 = (tI === 1 ? 12 : 10.5) * s;
+        L.push(P(base, j1, r0, r0 * 0.78, MAT.SCALE, 4), P(j1, j2, r0 * 0.78, r0 * 0.62, MAT.SCALE, 3), P(j2, tip, r0 * 0.62, r0 * 0.48, MAT.SCALE, 2));
+        for (const jj of [j1, j2]) L.push(P([jj[0] - 2, jj[1] + r0 * 0.45], [jj[0] + 2, jj[1] + r0 * 0.45], r0 * 0.5, r0 * 0.5, MAT.SCALE, 3));   // pads
+        const cA = ta + 0.55, c1: V2 = add(tip, dirOf(cA), 9 * s), c2: V2 = add(c1, dirOf(cA + 0.6), 6 * s);
+        L.push(P(tip, c1, r0 * 0.42, r0 * 0.25, MAT.CLAW, 0), P(c1, c2, r0 * 0.25, 0.8, MAT.CLAW, 0));
+        low = Math.max(low, c2[1] + 1, j1[1] + r0 * 0.95);
       }
       low = Math.max(low, foot[1] + 12);
       legs.push(L);
@@ -626,12 +640,23 @@ export default class SceneDinoEra extends PanelScene {
     // arms: small, two fingers with claws
     grp = 1;
     const sh = add(add(chest, fwd, 22), up, -40);
-    const el: V2 = [sh[0] + 32, sh[1] + 28], wr: V2 = [sh[0] + 52, sh[1] + 18 + 4 * Math.sin(t * 3)];
-    for (const side of [0, 1]) {
+    const el: V2 = [sh[0] + 30, sh[1] + 34], wr: V2 = [sh[0] + 58, sh[1] + 22 + 4 * Math.sin(t * 3)];
+    for (const side of [1, 0]) {
       const o: V2 = [side * -8, side * -4];
       const S = (p: V2): V2 => [p[0] + o[0], p[1] + o[1]];
-      push(P(S(sh), S(el), 15, 11, MAT.SCALE, 6), P(S(el), S(wr), 11, 8, MAT.SCALE, 4));
-      for (let fI = 0; fI < 2; fI++) { const ft: V2 = [wr[0] + 15 + o[0], wr[1] + 4 + fI * 8 + o[1]]; push(P(S(wr), ft, 5.5, 3.2, MAT.SCALE, 2), P(ft, [ft[0] + 6, ft[1] + 7], 3, 0.8, MAT.HORN, 0)); }
+      // a short, thick upper arm with its biceps, a forearm, the elbow; a hand of two clawed fingers (two
+      // segments each, curled) and the nub of a third
+      push(P(S(sh), S(el), 17, 12, MAT.SCALE, 6), P(S(lerp2(sh, el, 0.3)), S(add(lerp2(sh, el, 0.65), [5, -3], 1)), 11, 8, MAT.SCALE, 5));
+      push(P(S(el), S([el[0] + 0.5, el[1]]), 12, 12, MAT.SCALE, 4), P(S(el), S(wr), 11.5, 8, MAT.SCALE, 4));
+      const hd: V2 = [wr[0] + 11, wr[1] + 3];
+      push(P(S(wr), S(hd), 8, 7, MAT.SCALE, 3));
+      for (let fI = 0; fI < 2; fI++) {
+        const curl = 0.5 + 0.25 * Math.sin(t * 3 + fI);
+        const f0: V2 = [hd[0] + 2, hd[1] - 3 + fI * 6], f1: V2 = add(f0, dirOf(0.15 + fI * 0.15), 11), f2: V2 = add(f1, dirOf(0.15 + fI * 0.15 + curl), 9);
+        const c1: V2 = add(f2, dirOf(0.4 + fI * 0.15 + curl * 1.6), 7);
+        push(P(S(f0), S(f1), 4.6, 3.8, MAT.SCALE, 2), P(S(f1), S(f2), 3.8, 3.0, MAT.SCALE, 1.5), P(S(f2), S(c1), 2.8, 0.7, MAT.CLAW, 0));
+      }
+      push(P(S([hd[0] - 2, hd[1] + 6]), S([hd[0] + 4, hd[1] + 10]), 3, 2.2, MAT.SCALE, 1.5));
     }
     // osteoderms down the neck and back
     for (let k = 0; k < 9; k++) {

@@ -108,6 +108,8 @@ export const MAT = {
   BRASS: 15, /** an emissive lens */ LAMP: 16,
   /** a spotted animal pelt (worn) */ PELT: 17, /** red-ochre body paint (decal) */ OCHRE: 18,
   /** a human eye: white, a dark iris, a highlight */ EYE_H: 19,
+  /** a finger- or toenail (decal): a pink bed, a pale free edge, a sheen */ NAIL: 20,
+  /** a dark keratin claw with a paler, worn tip */ CLAW: 21,
 } as const;
 
 export interface Part extends Capsule { k?: number; mat?: number; /** group (for split evaluation) */ g?: number }
@@ -252,6 +254,14 @@ vec3 bodyShade(vec3 c, Body B, vec3 L, vec3 Lc, vec3 skinA, vec3 skinB, vec3 ski
       sss = vec3(0.5, 0.42, 0.3) * 0.25;
       sp = 0.9; spP = 40.0;
     }
+#ifdef BODY_SCALES
+    if (m == 21) {                                     // claw: dark keratin, striated along it, a paler worn tip
+      float tipK = sat(uv.x / max(B.r * 4.0, 8.0));
+      col = mix(vec3(0.035, 0.028, 0.022), vec3(0.3, 0.26, 0.2), tipK * tipK);
+      col *= 0.85 + 0.3 * vnoise(vec2(uv.x / 4.0, uv.y / 0.6));
+      sp = 1.2; spP = 44.0;
+    }
+#endif
 #if defined(BODY_SCALES) || defined(BODY_ORGANIC)
     if (m == 3) {                                      // eye: amber iris, black pupil, a wet highlight
       float rr = length(uv);
@@ -425,6 +435,13 @@ vec3 bodyShade(vec3 c, Body B, vec3 L, vec3 Lc, vec3 skinA, vec3 skinB, vec3 ski
       float g = vnoise(uv / 1.5) * 0.3;
       col = vec3(0.42, 0.06, 0.025) * (0.8 + g) * (0.85 + 0.3 * vnoise(vec2(uv.x / 0.6, uv.y / 4.0)));
       sp = 0.15;
+    }
+#endif
+#ifdef BODY_ORGANIC
+    if (m == 20) {                                     // nail: a pink bed over the skin, a pale free edge, a cuticle, a sheen
+      col = mix(skinB * vec3(1.2, 1.02, 0.97) + vec3(0.025, 0.01, 0.008), skinB * 1.5 + vec3(0.05, 0.045, 0.04), smoothstep(B.r * 0.9, B.r * 1.6, uv.x));
+      col *= 1.0 - 0.35 * smoothstep(-B.r * 0.4, -B.r * 1.1, uv.x);                       // the cuticle
+      sp = 1.3; spP = 46.0;
     }
 #endif
 #ifdef BODY_ORGANIC

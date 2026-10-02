@@ -10,7 +10,7 @@ export type P2 = [number, number];
 export interface Bone { a: P2; b: P2; ra: number; rb: number; k: number; mat: number }
 
 // materials (shaders/relief.ts MAT)
-const SKIN = 1, HORN = 2, MOUTH = 12, EYE = 3, FUR = 4, CLOTH = 7, HAIR = 8, DARK = 9, PELT = 17, OCHRE = 18, EYE_H = 19;
+const SKIN = 1, HORN = 2, MOUTH = 12, NAIL = 20, EYE = 3, FUR = 4, CLOTH = 7, HAIR = 8, DARK = 9, PELT = 17, OCHRE = 18, EYE_H = 19;
 
 interface Params {
   thigh: number; shin: number; foot: number; armU: number; armF: number; hand: number;
@@ -157,6 +157,8 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
   const U = (p: P2): P2 => [p[0], p[1] + up];
   const push = (a: P2, b: P2, ra: number, rb: number, mat = FUR, k = 0.012) => { if (ra > 1e-5) bones.push({ a: U(a), b: U([b[0] + 1e-4, b[1]]), ra, rb, k, mat }); };
   const perp = (d: P2): P2 => [-d[1], d[0]];
+  /** rotate a direction counter-clockwise (figure units, y up) */
+  const rot = (d: P2, a: number): P2 => [d[0] * Math.cos(a) - d[1] * Math.sin(a), d[0] * Math.sin(a) + d[1] * Math.cos(a)];
   const unit = (a: P2, b: P2): P2 => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [dx / L, dy / L]; };
   const q = P.quad;
   const human = smoothstep(1.35, 1.9, m);           // hair, cloth, a nose: what the upright form gains
@@ -165,20 +167,33 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
     const l = legs[i]!, a = arms[i]!;
     // (perp of the shin, which points down, is the front of the leg)
     const dS = unit(l.knee, l.ankle), front = perp(dS), back: P2 = [-front[0], -front[1]];
-    push(l.hip, l.knee, (0.052 + 0.012 * q) * s, (0.038 + 0.006 * q) * s);
+    // the upright leg tapers: a full thigh to a slim knee, a calf that swells behind the shin, a narrow ankle
+    push(l.hip, l.knee, (0.052 + 0.012 * q) * s, (0.03 + 0.014 * q) * s);
     // the thigh's front muscle and the hamstring behind it
     const dTh = unit(l.hip, l.knee), thF = perp(dTh);
     push(add(add(l.hip, dTh, 0.06), thF, 0.012), add(add(l.hip, dTh, 0.17), thF, 0.008), 0.042 * s, 0.03 * s, FUR, 0.014);
     // the calf behind the shin, the kneecap in front of it
-    push(add(l.knee, dS, 0.035), add(add(l.knee, dS, 0.12), back, 0.012), (0.036 + 0.004 * q) * s, 0.026 * s, FUR, 0.01);
+    // (the calf starts below the knee, swells in its upper third and tapers into the Achilles tendon)
+    push(add(l.knee, dS, 0.045), add(add(l.knee, dS, 0.095), back, 0.01 + 0.004 * (1 - q)), (0.026 + 0.012 * q) * s, (0.03 + 0.008 * q) * s, FUR, 0.02);
+    push(add(add(l.knee, dS, 0.095), back, 0.01 + 0.004 * (1 - q)), add(add(l.knee, dS, 0.19), back, 0.006), (0.03 + 0.008 * q) * s, (0.018 + 0.006 * q) * s, FUR, 0.02);
     push(add(l.knee, front, 0.022), add(add(l.knee, front, 0.022), dS, 0.012), 0.017 * s, 0.015 * s, FUR, 0.008);
-    push(l.knee, l.ankle, (0.034 + 0.006 * q) * s, 0.022 * s);
-    const dF = unit(l.ankle, l.toe);
-    push(add(l.ankle, dF, -0.012), l.toe, 0.024 * s, 0.017 * s, SKIN, 0.008);
-    push(add(l.ankle, dF, -0.016), add(add(l.ankle, dF, -0.016), [0, -1], 0.008), 0.021 * s, 0.02 * s, SKIN, 0.006);   // the heel
-    push(l.toe, add(l.toe, dF, 0.018), 0.013 * s, 0.01 * s, SKIN, 0.004);
-    if (human > 0.5) push(add(add(l.toe, dF, 0.016), [0, 1], 0.004), add(add(l.toe, dF, 0.02), [0, 1], 0.004), 0.005 * s, 0.004 * s, HORN, -1);   // the big toenail
-    push(add(l.toe, [0, 1], 0.004), add(add(l.toe, dF, 0.012), [0, 1], 0.005), 0.0095 * s, 0.008 * s, SKIN, 0.003);  // the next toe
+    push(l.knee, l.ankle, (0.027 + 0.013 * q) * s, (0.016 + 0.006 * q) * s);
+    const dF = unit(l.ankle, l.toe), fUp = perp(dF);           // (perp of the foot, which points forward, is up)
+    const heel = add(add(l.ankle, dF, -0.016), [0, -1], 0.008);
+    // (the top of the foot and the back of the hand carry the coat, so on the ape only toes, fingers and soles
+    // are bare; on the human the coat is skin anyway)
+    push(add(l.ankle, dF, -0.012), l.toe, 0.024 * s, 0.017 * s, FUR, 0.008);                       // the instep
+    push(add(l.ankle, dF, -0.016), heel, 0.021 * s, 0.02 * s, FUR, 0.006);                           // the heel
+    push(add(heel, dF, 0.01), add(add(l.toe, fUp, -0.01), dF, -0.012), 0.013 * s, 0.014 * s, SKIN, 0.008);   // the sole
+    push(add(add(l.toe, fUp, -0.006), dF, -0.006), add(add(l.toe, fUp, -0.006), dF, -0.005), 0.016 * s, 0.016 * s, SKIN, 0.005);   // the ball of the foot
+    // the ankle bone, and the Achilles tendon from the calf down to the heel
+    push(add(l.ankle, front, 0.004), add(add(l.ankle, front, 0.004), dS, 0.004), 0.02 * s, 0.019 * s, SKIN, 0.006);
+    push(add(add(l.ankle, dS, -0.07), back, 0.012), add(heel, [0, 1], 0.012), 0.012 * s, 0.013 * s, SKIN, 0.008);
+    // the toes: the big toe, and two smaller rows behind it (in depth), each a little shorter and higher
+    push(l.toe, add(add(l.toe, dF, 0.02), fUp, -0.002), 0.0125 * s, 0.0098 * s, SKIN, 0.003);
+    push(add(l.toe, fUp, 0.004), add(add(l.toe, dF, 0.013), fUp, 0.002), 0.0095 * s, 0.0078 * s, SKIN, 0.0025);
+    push(add(add(l.toe, fUp, 0.007), dF, -0.006), add(add(l.toe, dF, 0.004), fUp, 0.005), 0.0085 * s, 0.007 * s, SKIN, 0.0025);
+    if (human > 0.5) push(add(add(l.toe, dF, 0.014), fUp, 0.0055), add(add(l.toe, dF, 0.02), fUp, 0.004), 0.0048 * s, 0.0042 * s, NAIL, -1);   // the big toenail
     // the ape's grasping big toe, set apart from the others
     if (q > 0.05) { const bt = add(l.ankle, dF, 0.035); push(bt, add(add(bt, dF, 0.03), [0, -1], 0.012), 0.012 * q * s, 0.009 * q * s, SKIN, 0.004); }
     push(a.sh, add(a.sh, unit(a.sh, a.el), 0.01), (0.043 + 0.012 * q) * s, (0.04 + 0.01 * q) * s);
@@ -186,19 +201,41 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
     push(a.el, a.wr, (0.028 + 0.012 * q) * s, (0.02 + 0.006 * q) * s);
     const dH = unit(a.wr, a.tip), side = perp(dH);
     const palmEnd = add(a.wr, dH, 0.042 + 0.01 * q);
-    push(a.wr, palmEnd, (0.02 + 0.004 * q) * s, (0.019 + 0.005 * q) * s, SKIN, 0.006);
-    if (i === 0 && reach > 0.3) {
-      // the reaching hand: the index finger extended, the others curled into the palm
-      push(palmEnd, a.tip, 0.009 * s, 0.0065 * s, SKIN, 0.003);
-      push(palmEnd, add(add(palmEnd, dH, 0.016), side, -0.014), 0.012 * s, 0.01 * s, SKIN, 0.004);
-    } else {
-      // four fingers fanned slightly, each a little shorter toward the outside
-      for (let f = 0; f < 4; f++) {
-        const off = -0.011 + f * 0.0075, shorten = 0.006 * Math.abs(f - 1.3);
-        push(add(palmEnd, side, off * 0.8), add(add(a.tip, side, off), dH, -shorten), (0.0085 + 0.003 * q) * s, (0.0065 + 0.003 * q) * s, SKIN, 0.003);
-      }
+    push(a.wr, palmEnd, (0.02 + 0.004 * q) * s, (0.019 + 0.005 * q) * s, FUR, 0.006);
+    push(add(add(a.wr, dH, 0.012), side, 0.011), add(add(a.wr, dH, 0.022), side, 0.012), 0.013 * s, 0.012 * s, SKIN, 0.005);   // the thumb's pad
+    push(add(palmEnd, side, -0.012), add(palmEnd, side, 0.012), (0.0105 + 0.003 * q) * s, (0.0105 + 0.003 * q) * s, SKIN, 0.003);   // the knuckles
+    // the fingers: three segments each, curling by pose — loosely when the arm swings, round a grip, folded
+    // under the palm for the ape's knuckle-walk; on the reaching hand the index stays straight and the rest
+    // close into a fist. curl > 0 turns them toward the palm (clockwise on a forward arm).
+    const reaching = i === 0 && reach > 0.3, ov = i === 0 ? o.armNear : o.armFar;
+    const curlDir = ov || reaching || q > 0.5 ? -1 : 1;
+    const curl = ov ? 0.95 : lerp(0.25, 1.15, q);
+    const Lf = Math.max(0.03, Math.hypot(a.tip[0] - palmEnd[0], a.tip[1] - palmEnd[1]));
+    let nailAt: [P2, P2] | null = null;
+    for (let f = 0; f < 4; f++) {
+      const off = (-0.011 + f * 0.0075) * (1 + 1.2 * q), L = Lf * (1 - 0.08 * Math.abs(f - 1.3));   // (the ape's knuckles fan out on the ground)
+      const c = reaching ? (f === 0 ? 0 : 1.1) : curl;
+      const r0 = (0.0085 + 0.003 * q) * s;
+      const b0 = add(palmEnd, side, off * 0.8);
+      const p1 = add(b0, rot(dH, curlDir * c * 0.45), L * 0.45);
+      const p2 = add(p1, rot(dH, curlDir * c * 1.35), L * 0.3);
+      const p3 = add(p2, rot(dH, curlDir * c * 2.2), L * 0.25);
+      push(b0, p1, r0, r0 * 0.88, SKIN, 0.003); push(p1, p2, r0 * 0.88, r0 * 0.76, SKIN, 0.0025); push(p2, p3, r0 * 0.76, r0 * 0.66, SKIN, 0.002);
+      if (f === 0) nailAt = [p2, p3];
     }
-    push(add(a.wr, side, 0.012), add(add(a.wr, side, 0.024), dH, 0.03), 0.009 * s, 0.007 * s, SKIN, 0.004);
+    // the thumb: two segments from the base of the palm, closing over the fingers in a grip
+    const tb = add(a.wr, side, 0.014), tc = ov || reaching ? 0.9 : 0.3;
+    const t1 = add(tb, rot(dH, curlDir * -0.35), 0.024), t2 = add(t1, rot(dH, curlDir * (tc - 0.3)), 0.02);
+    push(tb, t1, 0.0098 * s, 0.0085 * s, SKIN, 0.004); push(t1, t2, 0.0085 * s, 0.0072 * s, SKIN, 0.003);
+    // nails on the human hand: the nearest finger and the thumb
+    if (human > 0.5 && nailAt) {
+      const [n0, n1] = nailAt as [P2, P2];
+      const nd = unit(n0, n1), nb = perp(nd);
+      const ns = curlDir > 0 ? -1 : 1;                       // the back of the finger: away from the curl
+      push(add(add(n1, nd, -0.006), nb, ns * 0.0035), add(add(n1, nd, -0.001), nb, ns * 0.0035), 0.0042 * s, 0.0038 * s, NAIL, -1);
+      const td = unit(t1, t2), tn = perp(td);
+      push(add(add(t2, td, -0.005), tn, ns * 0.003), add(add(t2, td, -0.001), tn, ns * 0.003), 0.004 * s, 0.0036 * s, NAIL, -1);
+    }
     // a plaited band round the near wrist (with the beads)
     if (i === 0 && human > 0.01 && (o.look ?? LOOK_DEFAULT).beads) { const dA = unit(a.el, a.wr); push(add(a.wr, dA, -0.026), add(a.wr, dA, -0.012), 0.026 * s * human, 0.025 * s * human, CLOTH, -1); }
   };
@@ -285,6 +322,6 @@ export function pose(m: number, phi: number, amp = 1, reach = 0, o: PoseOpts = {
 
 /** Reach direction of the near arm (from straight down, forward positive): 30° below horizontal. */
 export const REACH_ANG = Math.PI / 2 - Math.PI / 6;
-export const NB = 72;
+export const NB = 112;
 
 export const _ = { smoothstep };

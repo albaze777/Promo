@@ -397,7 +397,7 @@ export class TopoPass {
           Body fb = fig; fb.d = hd;
           // the ape: near-black fur with auburn tips over a bare, dark grey face; the human: warm brown skin,
           // dark hair, a leather loincloth
-          vec3 skinF = mix(vec3(0.21, 0.115, 0.068), vec3(0.15, 0.115, 0.095), furK);
+          vec3 skinF = mix(vec3(0.21, 0.115, 0.068), vec3(0.09, 0.072, 0.064), furK);
           vec3 cf = bodyShade(c0, fb, normalize(vec3(-0.55, -0.6, 0.6)), vec3(1.0, 0.86, 0.7) * 0.85,
                               mix(vec3(0.045, 0.028, 0.018), vec3(0.068, 0.034, 0.018), furK), skinF, vec3(0.2, 0.1, 0.045), 0.0, furK, lc * 0.9, 6.5, bodyK);
           cf += lc * bodyK * echo * 0.16;

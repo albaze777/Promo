@@ -140,6 +140,22 @@ session; nothing here is an estimate unless it says so.
     (4 sub-frames, warm, one process): dino 41.9 s ≈ 9.1–10.0 s (was 10.8–11.5), wheel 58.5 s ≈ 8.1–8.3 s
     (was 7.9–8.0), robots 74 s ≈ 8.0–8.7 s (was 12.4–13.7).
 
+- Ninth round (legs and hands, after "the legs and hands still not perfect"):
+  - T-rex: a knee and an ankle joint, a calf behind a heavier shin, a long metatarsus; three toes in a side view
+    (the far one higher and set back, the near one lower), each three segments with pads under the joints and
+    a hooked claw in a new dark keratin material (`MAT.CLAW`); arms with a biceps, an elbow, a hand, two
+    clawed fingers of two curling segments and the nub of a third. Slots per creature: NR 120 → 170.
+  - Figure (`figure.ts`, NB 72 → 112): fingers of three segments that curl by pose (loose when walking, round a
+    grip, a fist on the reaching hand, folded under for the ape's knuckle-walk, fanned on the ground), a knuckle
+    ridge, a thumb pad, a two-segment thumb, nails (`MAT.NAIL`) on the human hand; feet with an instep, heel,
+    sole, ball, three toes, an ankle bone and an Achilles tendon; the upright leg tapers (slim knee and ankle, a
+    calf that swells below the knee). The back of the hand and the top of the foot carry the coat, so the ape
+    shows only dark fingers, toes and soles (ape skin darkened).
+  - Robot biped: a larger hand with a palm plate, three fingers of three segments with knuckle discs and pads,
+    a jointed thumb.
+  - Measured (4 sub-frames, warm, one process): walker 16 s ≈ 9.9 s, dino 41.9 s ≈ 10.0–11.0 s, wheel 58.5 s
+    ≈ 9.4–9.7 s, robots 72 s ≈ 5.5 s.
+
 ## Not done / remaining
 
 1. **The current version has not been fully rendered.** At the pause, `out/segments_v2/` (gitignored, only
