@@ -158,13 +158,21 @@ session; nothing here is an estimate unless it says so.
 
 ## Not done / remaining
 
-1. **The current version has not been fully rendered.** At the pause, `out/segments_v2/` (gitignored, only
-   in that container) held 19 of 20 chunks (chunk 015, 75–80 s, was missing). In a new container `out/` is
-   empty, so the whole film must be rendered (step 4 above).
-2. **`renders/` still holds the previous version** (committed earlier, 95.3 MB and 28.8 MB): same 96 s edit
-   but with the simpler relief models, the red meteor and the short impact. Replace it after rendering.
-3. Optional polish noted but not done: the grazing/stalk section before the meteor is long; the opening
+1. Optional polish noted but not done: the grazing/stalk section before the meteor is long; the opening
    "tools" stage of 05c is sparse; the gallery chunks render slowly.
+
+## Rendered (2 Oct 2026, after the ninth round, commit 1ef49a0)
+
+- `run_claim.sh out/segments_v3 out/oredlab-promo_master3.mp4 2 --fps 60 --samples 4 --shutter 0.5 --crf 16
+  --preset slow --chunk 5`, two processes: they finished after 568.7 and 584.9 min; the master was written 9 h
+  56 min after the start. Master: 1.53 GB, `ffprobe -count_frames` 5738 frames, 95.633 s video, 95.625 s audio.
+- Frames on both sides of all 19 chunk boundaries checked: continuous. Two boundaries coincide with cues and
+  change on purpose (2699/2700: the impact flash at 45.00 s; 5099/5100: the Ored text fading at 85.00 s, a fade
+  that runs across 5097–5100).
+- `encode_delivery.sh`: `repo.mp4` 94,991,022 bytes → `renders/oredlab-promo.mp4`; `share1080.mp4`
+  28,989,173 bytes → `renders/oredlab-promo_share.mp4`; `share720.mp4` 28,953,907 bytes (not committed). All
+  5738 frames.
+- Audio: `bun run audio` wrote 95.625 s, measured −17.5 LUFS integrated (ffmpeg ebur128).
 
 ## Measured render costs (this container: 4 cores, no GPU, SwiftShader)
 

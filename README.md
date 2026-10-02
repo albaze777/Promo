@@ -4,7 +4,7 @@ A 96-second cinematic identity film for **OredLab** (an art community for creato
 
 > One line of existence becomes the universe, then life, then a walking ape that becomes a human, then art, then a gallery whose artworks open onto the dinosaurs' last night, the first wheel and the road to the robots, then an infinite gallery, then intelligence, then Ored, then OredLab.
 
-**Rendered film:** `renders/oredlab-promo.mp4`: 1920×1080, 60 fps, 4 motion-blur sub-frames per frame (shutter 0.5), 95.6 s, H.264 two-pass at 7.8 Mbps (from a CRF 16 master) + AAC 192 kbps, 95.3 MB. `renders/oredlab-promo_share.mp4` is a 1080p60 two-pass copy at 2.3 Mbps + AAC 128 kbps (28.8 MB, under 30 MiB) for messaging. See [Render notes](#render-notes). Regenerate them with the commands below.
+**Rendered film:** `renders/oredlab-promo.mp4`: 1920×1080, 60 fps, 4 motion-blur sub-frames per frame (shutter 0.5), 95.6 s, H.264 two-pass at 7.8 Mbps (from a CRF 16 master) + AAC 192 kbps, 5738 frames, 95.0 MB (94,991,022 bytes). `renders/oredlab-promo_share.mp4` is a 1080p60 two-pass copy at 2.3 Mbps + AAC 128 kbps (29.0 MB, 28,989,173 bytes, under 30 MiB) for messaging. See [Render notes](#render-notes). Regenerate them with the commands below.
 
 - Concept, palette, typography, beat map and scene-by-scene treatment: [`docs/TREATMENT.md`](docs/TREATMENT.md)
 - Engine, scene API, determinism rules and the motion-blur renderer: [`docs/ENGINE.md`](docs/ENGINE.md)
@@ -84,6 +84,21 @@ On a machine without a GPU (SwiftShader) a 1080p frame takes about 1–8 s with 
 All times on the command line (`--t`, `--from`, `--to`, `?t=`) are **output seconds** (0–95.625). Scenes and cues are authored on a story clock (0–76.5), declared in `src/timeline/cues.ts` as a sequence of segments whose cue times are computed by accumulation, so inserting or lengthening a scene shifts everything after it. The film plays the story clock `TIME_SCALE` = 1.25× slower. The preview's status line shows both clocks.
 
 ## Render notes
+
+**Current render (2 Oct 2026, the version with the detailed models, legs and hands):** the resumable chunk renderer with two processes sharing one queue of 5 s chunks, SwiftShader on a 4-core container without a GPU:
+
+```sh
+setsid nohup scripts/run_claim.sh out/segments_v3 out/oredlab-promo_master3.mp4 2 --fps 60 --samples 4 --shutter 0.5 --crf 16 --preset slow --chunk 5 > /dev/null 2>&1 &
+scripts/encode_delivery.sh oredlab-promo_master3.mp4      # → out/repo.mp4, out/share1080.mp4, out/share720.mp4
+```
+
+- Settings: 1080p, 60 fps, 4 motion-blur sub-frames, shutter 0.5, CRF 16 / preset slow master.
+- Time: the two processes finished their queues after 568.7 and 584.9 min; with the concat, frame checks and audio mux the master was written 9 h 56 min after the start. Chunk rates per process ranged from about 0.04–0.06 fps (planet, evolution, dino, wheel, robots, gallery) to 0.5 fps (end card).
+- Master: `out/oredlab-promo_master3.mp4`, 1.53 GB, `ffprobe -count_frames` 5738 video frames, 95.633 s video, 95.625 s AAC audio.
+- Delivery: `repo.mp4` 94,991,022 bytes (two-pass 7.8 Mbps), `share1080.mp4` 28,989,173 bytes (2.3 Mbps), `share720.mp4` 28,953,907 bytes; each 5738 frames. The encode took 15 min 46 s.
+
+**Earlier render (the previous, simpler version):**
+
 
 The delivered film was rendered with the resumable renderer as two shard processes (one browser each, SwiftShader on a 4-core container without a GPU):
 
